@@ -290,34 +290,33 @@ class GameManager:
 
     # ── Bot turları ──────────────────────────────────────────────────────────
     async def _bot_tur_kontrol(self, channel, masa_id: str):
-        masa = self.masalar.get(masa_id)
-        if not masa or masa.durum != GameState.PLAYING:
-            return
-        siradaki = masa.siradaki_oyuncu_id()
-        if siradaki not in masa.bot_oyuncular:
-            return
-        await asyncio.sleep(1.5)
-        masa = self.masalar.get(masa_id)
-        if not masa or masa.durum != GameState.PLAYING:
-            return
-        atilan = masa.bot_hamle_yap(siradaki)
-        bot_ad = masa.oyuncu_adlari.get(siradaki, "Bot")
-        if masa.durum == GameState.FINISHED:
-            if channel:
-                await channel.send(f"🤖 **{bot_ad}** OKEY AÇTI! 🎉")
-            await self._oyun_bitti(channel, masa_id, siradaki, None)
-            return
-        if channel and atilan:
-            await channel.send(f"🤖 **{bot_ad}** `{str(atilan)}` attı.")
-            await self._mesaj_sayaci_artir(channel, masa_id)
-        sonraki = masa.siradaki_oyuncu_id()
-        if sonraki in masa.bot_oyuncular:
-            await self._bot_tur_kontrol(channel, masa_id)
-        elif channel:
-            await channel.send(
-                f"🎴 Sıra: **{masa.oyuncu_adlari.get(sonraki, '?')}** — Taş çekin!"
-            )
-            await self._mesaj_sayaci_artir(channel, masa_id)
+        """Bot sıralarını zincirleme oynatır; gerçek oyuncuya geçince panel gönderir."""
+        while True:
+            masa = self.masalar.get(masa_id)
+            if not masa or masa.durum != GameState.PLAYING:
+                return
+            siradaki = masa.siradaki_oyuncu_id()
+            if siradaki not in masa.bot_oyuncular:
+                # Gerçek oyuncunun sırası — panel gönder
+                if channel:
+                    await channel.send(
+                        f"🎴 Sıra: **{masa.oyuncu_adlari.get(siradaki, '?')}** — Taş çekin!"
+                    )
+                    await self._panel_gonder(channel, masa_id)
+                return
+            await asyncio.sleep(1.5)
+            masa = self.masalar.get(masa_id)
+            if not masa or masa.durum != GameState.PLAYING:
+                return
+            atilan = masa.bot_hamle_yap(siradaki)
+            bot_ad = masa.oyuncu_adlari.get(siradaki, "Bot")
+            if masa.durum == GameState.FINISHED:
+                if channel:
+                    await channel.send(f"🤖 **{bot_ad}** OKEY AÇTI! 🎉")
+                await self._oyun_bitti(channel, masa_id, siradaki, None)
+                return
+            if channel and atilan:
+                await channel.send(f"🤖 **{bot_ad}** `{str(atilan)}` attı.")
 
     # ── El gör ──────────────────────────────────────────────────────────────
     async def el_goster(self, interaction: discord.Interaction, masa_id: str):
@@ -374,14 +373,23 @@ class GameManager:
             if mod == "renk_sayi"
             else "🀄 **Aynı Sayı + Farklı Renk** (🔴13-🟡13-🔵13 gibi)"
         )
-        el_text = "  ".join(str(t) for t in el)
+        # Her taşı numaralı listele
+        el_satirlar = []
+        for i, t in enumerate(el):
+            renk_ad = COLOR_NAMES.get(t.renk, t.renk) if not t.okey else "JOKER"
+            sayi_str = str(t.sayi) if not t.okey else "★"
+            emoji = COLOR_EMOJI.get(t.renk, "🃏") if not t.okey else "🃏"
+            el_satirlar.append(f"`{i+1:>2}.` {emoji} **{renk_ad} {sayi_str}**")
+        el_text = "\n".join(el_satirlar)
+
         embed = discord.Embed(
             title="🀄 Perlendi!",
-            description=f"{mod_aciklama}\n\n`{el_text}`",
+            description=f"{mod_aciklama}\n\n{el_text}",
             color=0x3498db
         )
         embed.set_image(url="attachment://per.png")
-        await interaction.response.edit_message(content=None, embed=embed, file=file, view=None)
+        # edit_message ile dosya eklenemez, yeni ephemeral mesaj gönder
+        await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
 
     # ── Talon çek ───────────────────────────────────────────────────────────
     async def talon_cek(self, interaction: discord.Interaction, masa_id: str):

@@ -145,6 +145,9 @@ async def okey_izle(interaction: discord.Interaction, oda_id: str):
     if masa.durum != GameState.PLAYING:
         await interaction.response.send_message("❌ Bu masa henüz başlamadı.", ephemeral=True)
         return
+    if interaction.user.id in masa.oyuncular:
+        await interaction.response.send_message("❌ Bu masanın oyuncususunuz, izleyici olamazsınız!", ephemeral=True)
+        return
     if interaction.user.id not in masa.izleyiciler:
         masa.izleyiciler.append(interaction.user.id)
     oyuncu_listesi = "\n".join(
