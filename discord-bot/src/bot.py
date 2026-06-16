@@ -12,7 +12,7 @@ from src.ui.render import render_profil
 from src.game.manager import game_manager
 
 ADMIN_ROLE_ID = 1513128919182606378
-TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+TOKEN = os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("DISCORD_TOKEN", "")
 
 intents = discord.Intents.default()
 intents.message_content = True
