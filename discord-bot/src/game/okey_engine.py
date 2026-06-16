@@ -4,11 +4,9 @@ from typing import Optional
 from enum import Enum
 
 COLORS = ["kirmizi", "sari", "mavi", "siyah"]
-COLOR_NAMES = {"kirmizi": "Kırmızı", "sari": "Sarı", "mavi": "Mavi", "siyah": "Siyah"}
-COLOR_EMOJI = {"kirmizi": "🔴", "sari": "🟡", "mavi": "🔵", "siyah": "⚫"}
-COLOR_HEX = {"kirmizi": "#E74C3C", "sari": "#F1C40F", "mavi": "#3498DB", "siyah": "#2C3E50"}
+COLOR_NAMES  = {"kirmizi": "Kırmızı", "sari": "Sarı", "mavi": "Mavi", "siyah": "Siyah"}
+COLOR_EMOJI  = {"kirmizi": "🔴", "sari": "🟡", "mavi": "🔵", "siyah": "⚫"}
 
-# Renk adı → iç key eşlemesi (kullanıcı girişi normalize için)
 COLOR_INPUT_MAP = {
     "kirmizi": "kirmizi", "kırmızı": "kirmizi", "k": "kirmizi", "red": "kirmizi",
     "sari": "sari", "sarı": "sari", "s": "sari", "yellow": "sari",
@@ -17,8 +15,8 @@ COLOR_INPUT_MAP = {
 }
 
 class GameState(Enum):
-    WAITING = "waiting"
-    PLAYING = "playing"
+    WAITING  = "waiting"
+    PLAYING  = "playing"
     FINISHED = "finished"
 
 @dataclass
@@ -41,76 +39,80 @@ class Tas:
         return hash((self.renk, self.sayi, self.okey))
 
 def create_okey_set() -> list[Tas]:
-    tas_seti = []
+    seti = []
     for _ in range(2):
         for renk in COLORS:
             for sayi in range(1, 14):
-                tas_seti.append(Tas(renk=renk, sayi=sayi))
-    tas_seti.append(Tas(renk="kirmizi", sayi=0, okey=True))
-    tas_seti.append(Tas(renk="sari", sayi=0, okey=True))
-    return tas_seti
+                seti.append(Tas(renk=renk, sayi=sayi))
+    seti.append(Tas(renk="kirmizi", sayi=0, okey=True))
+    seti.append(Tas(renk="sari",    sayi=0, okey=True))
+    return seti
 
-def determine_okey_tas(goster_tas: Tas) -> Tas:
-    if goster_tas.okey:
+def determine_okey_tas(goster: Tas) -> Tas:
+    if goster.okey:
         return Tas(renk="kirmizi", sayi=1)
-    next_sayi = goster_tas.sayi + 1
-    if next_sayi > 13:
-        next_sayi = 1
-    return Tas(renk=goster_tas.renk, sayi=next_sayi)
+    ns = goster.sayi + 1
+    if ns > 13:
+        ns = 1
+    return Tas(renk=goster.renk, sayi=ns)
 
-def sort_hand(el: list[Tas], okey_tas: Optional[Tas] = None) -> list[Tas]:
-    def sort_key(t: Tas):
+def sort_hand_renk_sayi(el: list[Tas]) -> list[Tas]:
+    """Aynı renk, ardışık sayı sıralaması (1-2-3 / kırmızı)."""
+    renk_order = {"kirmizi": 0, "sari": 1, "mavi": 2, "siyah": 3}
+    def key(t: Tas):
         if t.okey:
-            return (99, 99, "")
-        renk_order = {"kirmizi": 0, "sari": 1, "mavi": 2, "siyah": 3}
-        return (renk_order.get(t.renk, 9), t.sayi, "")
-    return sorted(el, key=sort_key)
+            return (99, 99)
+        return (renk_order.get(t.renk, 9), t.sayi)
+    return sorted(el, key=key)
+
+def sort_hand_sayi_renk(el: list[Tas]) -> list[Tas]:
+    """Aynı sayı, farklı renk sıralaması (13🔴 13🟡 13🔵)."""
+    renk_order = {"kirmizi": 0, "sari": 1, "mavi": 2, "siyah": 3}
+    def key(t: Tas):
+        if t.okey:
+            return (99, 99)
+        return (t.sayi, renk_order.get(t.renk, 9))
+    return sorted(el, key=key)
+
+def sort_hand(el: list[Tas], okey_tas=None) -> list[Tas]:
+    return sort_hand_renk_sayi(el)
 
 def check_winner(el: list[Tas], okey_tas: Optional[Tas]) -> bool:
     if len(el) < 14:
         return False
-    hand = [t for t in el if not t.okey]
-    jokers = [t for t in el if t.okey]
-    okeys = []
+    hand   = [t for t in el if not t.okey]
+    jokers = len([t for t in el if t.okey])
     if okey_tas:
-        okeys = [t for t in hand if t.renk == okey_tas.renk and t.sayi == okey_tas.sayi]
-        hand = [t for t in hand if not (t.renk == okey_tas.renk and t.sayi == okey_tas.sayi)]
-    total_jokers = len(jokers) + len(okeys)
-    return _can_form_sets(hand, total_jokers)
-
-def _can_form_sets(hand: list[Tas], jokers: int) -> bool:
-    if not hand and jokers >= 0:
-        return True
-    if len(hand) + jokers < 3:
-        return False
+        okeys   = [t for t in hand if t.renk == okey_tas.renk and t.sayi == okey_tas.sayi]
+        hand    = [t for t in hand if not (t.renk == okey_tas.renk and t.sayi == okey_tas.sayi)]
+        jokers += len(okeys)
     return jokers >= len(hand) // 3
 
 @dataclass
 class OkeyGame:
     masa_id: str
-    oyuncular: list[int] = field(default_factory=list)
-    oyuncu_elleri: dict[int, list[Tas]] = field(default_factory=dict)
-    oyuncu_adlari: dict[int, str] = field(default_factory=dict)
-    talon: list[Tas] = field(default_factory=list)
-    cop_yigi: list[Tas] = field(default_factory=list)
-    goster_tas: Optional[Tas] = None
-    okey_tas: Optional[Tas] = None
-    siradaki_oyuncu: int = 0
-    durum: GameState = GameState.WAITING
-    bahis: int = 0
-    max_oyuncu: int = 4
-    sifreli: bool = False
-    sifre: str = ""
-    kanal_id: Optional[int] = None
-    oyun_kanal_id: Optional[int] = None  # Oluşturulan özel oyun kanalı
-    mesaj_id: Optional[int] = None
-    panel_mesaj_id: Optional[int] = None  # Oyun kanalındaki sabit panel mesajı
-    izleyiciler: list[int] = field(default_factory=list)
-    bot_oyuncular: set[int] = field(default_factory=set)
-    el_cekti: dict[int, bool] = field(default_factory=dict)
-    mesaj_sayaci: int = 0  # Her 2 mesajda panel yenileme için
-    bot_modu: object = False  # False, True, "karisik"
-    karisik_sayac_basladi: bool = False
+    oyuncular:       list[int]          = field(default_factory=list)
+    oyuncu_elleri:   dict[int, list]    = field(default_factory=dict)
+    oyuncu_adlari:   dict[int, str]     = field(default_factory=dict)
+    talon:           list[Tas]          = field(default_factory=list)
+    cop_yigi:        list[Tas]          = field(default_factory=list)
+    goster_tas:      Optional[Tas]      = None
+    okey_tas:        Optional[Tas]      = None
+    siradaki_oyuncu: int                = 0
+    durum:           GameState          = GameState.WAITING
+    bahis:           int                = 0
+    max_oyuncu:      int                = 4
+    sifreli:         bool               = False
+    sifre:           str                = ""
+    kanal_id:        Optional[int]      = None
+    oyun_kanal_id:   Optional[int]      = None
+    mesaj_id:        Optional[int]      = None
+    panel_mesaj_id:  Optional[int]      = None
+    izleyiciler:     list[int]          = field(default_factory=list)
+    bot_oyuncular:   set[int]           = field(default_factory=set)
+    el_cekti:        dict[int, bool]    = field(default_factory=dict)
+    mesaj_sayaci:    int                = 0
+    bot_modu:        object             = False
 
     def oyuncu_ekle(self, user_id: int, ad: str) -> bool:
         if user_id in self.oyuncular:
@@ -132,9 +134,9 @@ class OkeyGame:
         return True
 
     def doldur_botlarla(self):
-        bot_ids = [-1, -2, -3, -4]
-        bot_adlari = ["🤖 Bot Ahmet", "🤖 Bot Mehmet", "🤖 Bot Ayşe", "🤖 Bot Fatma"]
-        for bid, bad in zip(bot_ids, bot_adlari):
+        bot_ids  = [-1, -2, -3, -4]
+        bot_adl  = ["🤖 Bot Ahmet", "🤖 Bot Mehmet", "🤖 Bot Ayşe", "🤖 Bot Fatma"]
+        for bid, bad in zip(bot_ids, bot_adl):
             if len(self.oyuncular) >= self.max_oyuncu:
                 break
             if bid not in self.oyuncular:
@@ -146,14 +148,14 @@ class OkeyGame:
     def oyunu_baslat(self):
         if len(self.oyuncular) < 2:
             return False
-        tas_seti = create_okey_set()
-        random.shuffle(tas_seti)
-        self.goster_tas = tas_seti.pop()
-        self.okey_tas = determine_okey_tas(self.goster_tas)
+        seti = create_okey_set()
+        random.shuffle(seti)
+        self.goster_tas = seti.pop()
+        self.okey_tas   = determine_okey_tas(self.goster_tas)
         for oyuncu in self.oyuncular:
-            self.oyuncu_elleri[oyuncu] = sort_hand(tas_seti[:14], self.okey_tas)
-            tas_seti = tas_seti[14:]
-        self.talon = tas_seti
+            self.oyuncu_elleri[oyuncu] = sort_hand(seti[:14], self.okey_tas)
+            seti = seti[14:]
+        self.talon = seti
         random.shuffle(self.talon)
         self.cop_yigi = []
         self.siradaki_oyuncu = 0
@@ -165,26 +167,25 @@ class OkeyGame:
             return None
         return self.oyuncular[self.siradaki_oyuncu % len(self.oyuncular)]
 
-    def tas_cek(self, user_id: int) -> Optional[Tas]:
-        if not self.talon:
-            return None
-        if self.siradaki_oyuncu_id() != user_id:
-            return None
-        if self.el_cekti.get(user_id):
-            return None
+    def _tur_bitir(self, user_id: int):
+        self.el_cekti[user_id] = False
+        self.siradaki_oyuncu   = (self.siradaki_oyuncu + 1) % len(self.oyuncular)
+
+    def talon_cek(self, user_id: int) -> Optional[Tas]:
+        if not self.talon:                            return None
+        if self.siradaki_oyuncu_id() != user_id:     return None
+        if self.el_cekti.get(user_id):               return None
         tas = self.talon.pop(0)
         self.oyuncu_elleri[user_id].append(tas)
         self.oyuncu_elleri[user_id] = sort_hand(self.oyuncu_elleri[user_id], self.okey_tas)
         self.el_cekti[user_id] = True
         return tas
 
-    def cop_cek(self, user_id: int) -> Optional[Tas]:
-        if not self.cop_yigi:
-            return None
-        if self.siradaki_oyuncu_id() != user_id:
-            return None
-        if self.el_cekti.get(user_id):
-            return None
+    # "Tablodaki son taşı al" — çöp yığının tepesini çek
+    def son_tasi_al(self, user_id: int) -> Optional[Tas]:
+        if not self.cop_yigi:                         return None
+        if self.siradaki_oyuncu_id() != user_id:     return None
+        if self.el_cekti.get(user_id):               return None
         tas = self.cop_yigi.pop()
         self.oyuncu_elleri[user_id].append(tas)
         self.oyuncu_elleri[user_id] = sort_hand(self.oyuncu_elleri[user_id], self.okey_tas)
@@ -192,61 +193,49 @@ class OkeyGame:
         return tas
 
     def tas_at_by_renk_sayi(self, user_id: int, renk: str, sayi: int) -> Optional[Tas]:
-        """Renk ve sayıya göre taşı bul ve at (kullanıcı dostu)"""
-        if self.siradaki_oyuncu_id() != user_id:
-            return None
-        if not self.el_cekti.get(user_id):
-            return None
+        if self.siradaki_oyuncu_id() != user_id:     return None
+        if not self.el_cekti.get(user_id):           return None
         el = self.oyuncu_elleri.get(user_id, [])
-        # Eşleşen ilk taşı bul
         for i, t in enumerate(el):
-            if t.okey:
-                continue
-            if t.renk == renk and t.sayi == sayi:
+            if not t.okey and t.renk == renk and t.sayi == sayi:
                 el.pop(i)
                 self.cop_yigi.append(t)
-                self.el_cekti[user_id] = False
-                self.siradaki_oyuncu = (self.siradaki_oyuncu + 1) % len(self.oyuncular)
+                self._tur_bitir(user_id)
                 return t
         return None
 
-    def tas_at(self, user_id: int, tas_index: int) -> Optional[Tas]:
-        """Index ile taş at (bot kullanımı için)"""
-        if self.siradaki_oyuncu_id() != user_id:
-            return None
-        if not self.el_cekti.get(user_id):
-            return None
+    def tas_at(self, user_id: int, idx: int) -> Optional[Tas]:
+        if self.siradaki_oyuncu_id() != user_id:     return None
+        if not self.el_cekti.get(user_id):           return None
         el = self.oyuncu_elleri.get(user_id, [])
-        if tas_index < 0 or tas_index >= len(el):
-            return None
-        tas = el.pop(tas_index)
+        if idx < 0 or idx >= len(el):                return None
+        tas = el.pop(idx)
         self.cop_yigi.append(tas)
-        self.el_cekti[user_id] = False
-        self.siradaki_oyuncu = (self.siradaki_oyuncu + 1) % len(self.oyuncular)
+        self._tur_bitir(user_id)
         return tas
 
+    def peri_diz(self, user_id: int, mod: str = "renk_sayi"):
+        if user_id not in self.oyuncu_elleri:
+            return
+        if mod == "sayi_renk":
+            self.oyuncu_elleri[user_id] = sort_hand_sayi_renk(self.oyuncu_elleri[user_id])
+        else:
+            self.oyuncu_elleri[user_id] = sort_hand_renk_sayi(self.oyuncu_elleri[user_id])
+
     def okey_ac(self, user_id: int) -> bool:
-        if self.siradaki_oyuncu_id() != user_id:
-            return False
-        if not self.el_cekti.get(user_id):
-            return False
+        if self.siradaki_oyuncu_id() != user_id:     return False
+        if not self.el_cekti.get(user_id):           return False
         el = self.oyuncu_elleri.get(user_id, [])
         if check_winner(el, self.okey_tas):
             self.durum = GameState.FINISHED
             return True
         return False
 
-    def peri_diz(self, user_id: int):
-        if user_id not in self.oyuncu_elleri:
-            return
-        self.oyuncu_elleri[user_id] = sort_hand(self.oyuncu_elleri[user_id], self.okey_tas)
-
     def bot_hamle_yap(self, bot_id: int) -> Optional[Tas]:
-        if self.siradaki_oyuncu_id() != bot_id:
-            return None
+        if self.siradaki_oyuncu_id() != bot_id:      return None
         if not self.el_cekti.get(bot_id):
             if self.talon:
-                self.tas_cek(bot_id)
+                self.talon_cek(bot_id)
             else:
                 return None
         el = self.oyuncu_elleri.get(bot_id, [])
@@ -255,35 +244,26 @@ class OkeyGame:
         if check_winner(el, self.okey_tas):
             self.durum = GameState.FINISHED
             return None
-        atilacak_index = self._bot_en_kotu_tas(bot_id)
-        return self.tas_at(bot_id, atilacak_index)
+        return self.tas_at(bot_id, self._bot_en_kotu(bot_id))
 
-    def _bot_en_kotu_tas(self, bot_id: int) -> int:
+    def _bot_en_kotu(self, bot_id: int) -> int:
         el = self.oyuncu_elleri.get(bot_id, [])
-        if not el:
-            return 0
-        for i, tas in enumerate(el):
-            if tas.okey:
+        for i, t in enumerate(el):
+            if t.okey:
                 continue
-            if self.okey_tas and tas.renk == self.okey_tas.renk and tas.sayi == self.okey_tas.sayi:
+            if self.okey_tas and t.renk == self.okey_tas.renk and t.sayi == self.okey_tas.sayi:
                 continue
             puan = 0
-            for j, diger in enumerate(el):
+            for j, d in enumerate(el):
                 if i == j:
                     continue
-                if diger.renk == tas.renk and abs(diger.sayi - tas.sayi) <= 2:
+                if d.renk == t.renk and abs(d.sayi - t.sayi) <= 2:
                     puan += 1
-                if diger.sayi == tas.sayi:
+                if d.sayi == t.sayi:
                     puan += 1
             if puan == 0:
                 return i
         return len(el) - 1
-
-    def el_str(self, user_id: int) -> str:
-        el = self.oyuncu_elleri.get(user_id, [])
-        if not el:
-            return "Boş el"
-        return " ".join([f"`{i+1}:{str(t)}`" for i, t in enumerate(el)])
 
     @property
     def doluluk(self) -> str:

@@ -4,8 +4,8 @@ from discord import app_commands
 import os
 import asyncio
 from src.economy.db import (
-    init_db, ensure_oyuncu, get_oyuncu, gunluk_al, 
-    transfer_cip, get_liderlik, update_cip
+    init_db, ensure_oyuncu, get_oyuncu, gunluk_al,
+    transfer_cip, get_liderlik, update_cip, vip_mac_oyna
 )
 from src.ui.views import LobiView, build_masa_view
 from src.ui.render import render_profil
@@ -254,16 +254,48 @@ async def market(interaction: discord.Interaction):
 @bot.tree.command(name="profil", description="Okey istatistik kartını gör")
 @app_commands.describe(kullanici="Profili görülecek kişi (boş bırakırsan kendi profilin)")
 async def profil(interaction: discord.Interaction, kullanici: discord.Member = None):
-    hedef = kullanici or interaction.user
-    oyuncu = await ensure_oyuncu(hedef.id, hedef.display_name)
+    from src.ui.views import _seviye_adi
+    from src.economy.db import get_liderlik
+    hedef   = kullanici or interaction.user
+    oyuncu  = await ensure_oyuncu(hedef.id, hedef.display_name)
     img_buf = render_profil(oyuncu)
-    file = discord.File(img_buf, filename="profil.png")
-    embed = discord.Embed(
-        title=f"🎯 {hedef.display_name} — Okey Profili",
-        color=0x2ecc71
+    file    = discord.File(img_buf, filename="profil.png")
+
+    lider_tam = await get_liderlik("cip", 10)
+    siralam   = next((i + 1 for i, o in enumerate(lider_tam) if o["user_id"] == hedef.id), "10+")
+    lider_top3 = lider_tam[:3]
+
+    toplam    = oyuncu.get("toplam_mac", 0)
+    galibiyet = oyuncu.get("galibiyet", 0)
+    yenilgi   = oyuncu.get("yenilgi", 0)
+    bera      = oyuncu.get("beraberlik", 0)
+    oran      = f"%{(galibiyet / toplam * 100):.1f}" if toplam > 0 else "%0"
+    cip       = oyuncu.get("cip", 0)
+    seviye    = oyuncu.get("seviye", 1)
+
+    embed = discord.Embed(title="📇 KAHVEHANE OKEY — OYUNCU PROFİLİ", color=0xf1c40f)
+    embed.set_thumbnail(url=hedef.display_avatar.url)
+    embed.description = (
+        f"👤 **Oyuncu:** {hedef.mention}\n\n"
+        f"🪙 **Mevcut Çip:** `{cip:,} 🪙`\n"
+        f"🏆 **Lig / Seviye:** `{_seviye_adi(seviye)} ✨`\n\n"
+        f"📊 **İstatistikler:**\n"
+        f"├ 🟢 **Galibiyet:** `{galibiyet} Oyun`\n"
+        f"├ 🟡 **Beraberlik:** `{bera} Oyun`\n"
+        f"└ 🔴 **Mağlubiyet:** `{yenilgi} Oyun`\n"
+        f"📈 **Kazanma Oranı:** `{oran}`\n\n"
+        f"🥇 **Sunucu Sıralaması:** `#{siralam}. Sırada`"
     )
+    if lider_top3:
+        mdl = ["1️⃣", "2️⃣", "3️⃣"]
+        ls  = "\n".join(
+            f"{mdl[i]} `{o.get('ad','?')}` — {o.get('cip', 0):,} Çip"
+            for i, o in enumerate(lider_top3)
+        )
+        embed.add_field(name="👑 TOP 3 LİDERLİK TABLOSU", value=ls, inline=False)
     embed.set_image(url="attachment://profil.png")
-    await interaction.response.send_message(embed=embed, file=file)
+    embed.set_footer(text="Bu profil kartı size özeldir." if not kullanici else f"{hedef.display_name} profilini görüyorsunuz.")
+    await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
 
 @bot.tree.command(name="liderlik", description="Sunucu liderlik tablosu")
 @app_commands.describe(kategori="Sıralama kategorisi")
