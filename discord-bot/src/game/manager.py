@@ -306,22 +306,19 @@ class GameManager:
         if not masa or masa.durum != GameState.WAITING:
             return
         gercek = [u for u in masa.oyuncular if u > 0]
-        if len(gercek) < 1:
+        if len(gercek) < 2:
             del self.masalar[masa_id]
             try:
-                await interaction.channel.send("⚠️ Yeterli oyuncu gelmedi, masa kapatıldı.")
+                await interaction.channel.send("⚠️ Yeterli oyuncu gelmedi (en az 2 kişi gerekli), masa kapatıldı.")
             except Exception:
                 pass
             return
-        eksik = masa.max_oyuncu - len(masa.oyuncular)
-        if eksik > 0:
-            masa.doldur_botlarla()
-            try:
-                await interaction.channel.send(
-                    f"⏰ **Süre doldu!** {eksik} bot eklendi. Oyun başlıyor!"
-                )
-            except Exception:
-                pass
+        try:
+            await interaction.channel.send(
+                f"⏰ **Süre doldu!** {len(gercek)} oyuncu ile oyun başlıyor!"
+            )
+        except Exception:
+            pass
         await self.masayi_baslat_otomatik(interaction.guild, interaction.channel, masa_id)
 
     # ── Masaya katıl (WAITING veya PLAYING) ──────────────────────────────────
@@ -465,10 +462,8 @@ class GameManager:
             await interaction.response.send_message("❌ Sadece masa kurucusu başlatabilir.", ephemeral=True); return
         if masa.durum != GameState.WAITING:
             await interaction.response.send_message("❌ Masa zaten başlamış.", ephemeral=True); return
-
-        eksik = masa.max_oyuncu - len(masa.oyuncular)
-        if eksik > 0:
-            masa.doldur_botlarla()
+        if len(masa.oyuncular) < 2:
+            await interaction.response.send_message("❌ En az 2 oyuncu gerekli!", ephemeral=True); return
 
         await interaction.response.defer()
         await self.masayi_baslat_otomatik(interaction.guild, interaction.channel, masa_id)

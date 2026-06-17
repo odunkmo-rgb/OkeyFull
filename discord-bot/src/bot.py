@@ -12,7 +12,7 @@ from src.ui.render import render_profil
 from src.game.manager import game_manager
 
 ADMIN_ROLE_ID = 1513128919182606378
-TOKEN = os.environ.get("DISCORD_BOT_TOKEN") or os.environ.get("DISCORD_TOKEN", "")
+TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -386,9 +386,9 @@ async def on_app_command_error(interaction: discord.Interaction, error: app_comm
 
 def main():
     if not TOKEN:
-        print("❌ DISCORD_BOT_TOKEN bulunamadı!")
-        return
-    bot.run(TOKEN)
+        print("❌ DISCORD_BOT_TOKEN secret'ı ayarlanmamış! Replit Secrets'a ekleyin.")
+        raise SystemExit(1)
+    bot.run(TOKEN, log_handler=None)
 
 if __name__ == "__main__":
     main()

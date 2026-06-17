@@ -153,9 +153,13 @@ class OkeyGame:
         random.shuffle(seti)
         self.goster_tas = seti.pop()
         self.okey_tas   = determine_okey_tas(self.goster_tas)
-        for oyuncu in self.oyuncular:
-            self.oyuncu_elleri[oyuncu] = sort_hand(seti[:14], self.okey_tas)
-            seti = seti[14:]
+        # İlk oyuncu 14 taş alır (taş çekmez), diğerleri 13 alır
+        for i, oyuncu in enumerate(self.oyuncular):
+            adet = 14 if i == 0 else 13
+            self.oyuncu_elleri[oyuncu] = sort_hand(seti[:adet], self.okey_tas)
+            seti = seti[adet:]
+            # İlk oyuncu zaten 14 taşa sahip — bu turda taş çekmez
+            self.el_cekti[oyuncu] = (i == 0)
         self.talon = seti
         random.shuffle(self.talon)
         self.cop_yigi = []
