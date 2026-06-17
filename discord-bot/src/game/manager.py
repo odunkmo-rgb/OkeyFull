@@ -480,6 +480,14 @@ class GameManager:
 
         hedef = oyun_kanali or kanal
 
+        # Lobi panelini (masa kuruldu mesajı) sil
+        if kanal and masa.mesaj_id:
+            try:
+                msg = await kanal.fetch_message(masa.mesaj_id)
+                await msg.delete()
+            except Exception:
+                pass
+
         oyuncu_list = self._oyuncu_mention_str(masa, guild)
         if kanal and oyun_kanali and oyun_kanali.id != kanal.id:
             try:
