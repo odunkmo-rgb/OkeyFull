@@ -242,6 +242,8 @@ class GameManager:
         """Lobi kanalındaki 'Oyun başladı' mesajını oyun bitince sil."""
         try:
             kanal = guild.get_channel(lobi_kanal_id)
+            if kanal is None:
+                kanal = await guild.fetch_channel(lobi_kanal_id)
             if kanal:
                 msg = await kanal.fetch_message(lobi_msg_id)
                 await msg.delete()
