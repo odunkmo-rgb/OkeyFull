@@ -27,11 +27,12 @@ class OkeyBot(commands.Bot):
     async def setup_hook(self):
         await init_db()
         self.add_view(LobiView())
-        await self.tree.sync()
-        print("✅ Slash komutları senkronize edildi.")
 
     async def on_ready(self):
         print(f"✅ {self.user} olarak giriş yapıldı!")
+        for guild in self.guilds:
+            await self.tree.sync(guild=guild)
+        print("✅ Slash komutları senkronize edildi.")
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.playing,
