@@ -4,7 +4,7 @@ import uuid
 from typing import Optional
 from src.game.okey_engine import (
     OkeyGame, GameState, COLOR_EMOJI, COLOR_NAMES,
-    JOKER_AT_CEZA, BONUS_NORMAL, BONUS_SAHTE_JOKER, BONUS_CIFTE_OKEY
+    BONUS_NORMAL, BONUS_SAHTE_JOKER, BONUS_CIFTE_OKEY
 )
 from src.economy.db import ensure_oyuncu, update_cip, mac_bitti
 from src.ui.render import render_el, render_son_tas
@@ -567,19 +567,42 @@ class GameManager:
 
         el_satirlar = []
         for i, t in enumerate(el):
-            renk_ad = COLOR_NAMES.get(t.renk, t.renk) if not t.okey else "JOKER"
-            sayi_str = str(t.sayi) if not t.okey else "★"
-            emoji = COLOR_EMOJI.get(t.renk, "🃏") if not t.okey else "🃏"
-            el_satirlar.append(f"`{i+1:>2}.` {emoji} **{renk_ad} {sayi_str}**")
+            if t.okey:
+                emoji = "🃏"
+                label = t.display_label()
+                # Okey taşı mı?
+                okey_isareti = ""
+            elif masa.okey_tas and t.renk == masa.okey_tas.renk and t.sayi == masa.okey_tas.sayi:
+                emoji = COLOR_EMOJI.get(t.renk, "⬜")
+                label = f"{COLOR_NAMES.get(t.renk, t.renk)} {t.sayi} ⭐(Okey)"
+                okey_isareti = ""
+            else:
+                emoji = COLOR_EMOJI.get(t.renk, "⬜")
+                label = f"{COLOR_NAMES.get(t.renk, t.renk)} {t.sayi}"
+                okey_isareti = ""
+            el_satirlar.append(f"`{i+1:>2}.` {emoji} **{label}**{okey_isareti}")
 
         el_text = "\n".join(el_satirlar)
+
+        # Joker/okey taş rehberi
+        joker_rehber = ""
+        sahte_var = any(t.okey for t in el)
+        okey_var = any(not t.okey and masa.okey_tas
+                       and t.renk == masa.okey_tas.renk and t.sayi == masa.okey_tas.sayi
+                       for t in el)
+        if sahte_var:
+            joker_rehber += "\n🃏 **Sahte Joker**: *Joker Ata* butonuyla istediğin taş olarak at"
+        if okey_var:
+            joker_rehber += f"\n⭐ **Okey Taşı** ({self._okey_str(masa)}): *Joker Ata* → *Okey Taşını At* ile at"
+
         embed = discord.Embed(
             title="🀄 Elinizdeki Taşlar",
             description=(
                 f"**Okey taşı:** {self._okey_str(masa)}\n"
                 f"**Taş sayısı:** {len(el)}\n\n"
                 f"{el_text}\n\n"
-                f"💡 *Taş At butonuna basıp **renk** ve **sayı** yazın.*"
+                f"💡 *Normal taşlar için **Taş At**, joker için **Joker Ata** butonuna bas.*"
+                f"{joker_rehber}"
             ),
             color=0x2ecc71
         )
@@ -779,8 +802,15 @@ class GameManager:
                 ephemeral=True
             )
 
-    # ── Joker at (cezalı) ────────────────────────────────────────────────────
-    async def joker_at(self, interaction: discord.Interaction, masa_id: str):
+    # ── Joker at (cezasız, serbest temsil) ───────────────────────────────────
+    async def joker_at(self, interaction: discord.Interaction, masa_id: str,
+                       gorsel_renk: str = None, gorsel_sayi: int = None,
+                       joker_turu: str = "sahte"):
+        """
+        Joker taşı serbestçe at — sahte joker veya renkli okey taşı.
+        gorsel_renk/gorsel_sayi: çöp yığınında gösterilecek temsil (isteğe bağlı).
+        joker_turu: 'sahte' veya 'okey'
+        """
         masa = self.masalar.get(masa_id)
         if not masa:
             await interaction.response.send_message("❌ Masa bulunamadı.", ephemeral=True); return
@@ -789,13 +819,15 @@ class GameManager:
         if masa.siradaki_oyuncu_id() != interaction.user.id:
             await interaction.response.send_message("❌ Sıra sizde değil!", ephemeral=True); return
 
-        basarili, hata = masa.sahte_joker_at(interaction.user.id)
+        if joker_turu == "okey":
+            basarili, hata = masa.okey_tas_at(interaction.user.id, gorsel_renk, gorsel_sayi)
+        else:
+            basarili, hata = masa.joker_at(interaction.user.id, gorsel_renk, gorsel_sayi)
+
         if not basarili:
             await interaction.response.send_message(f"❌ {hata}", ephemeral=True); return
 
-        # Ceza uygula
         self._zaman_asimi_iptal(masa_id, interaction.user.id)
-        await update_cip(interaction.user.id, -JOKER_AT_CEZA)
 
         sonraki_id = masa.siradaki_oyuncu_id()
         sonraki_ad = masa.oyuncu_adlari.get(sonraki_id, "?")
@@ -806,11 +838,21 @@ class GameManager:
             if oy:
                 channel = oy
 
-        await interaction.response.send_message(
-            f"🃏 **{interaction.user.display_name}** sahte jokeri attı! "
-            f"**-{JOKER_AT_CEZA} 🪙** ceza uygulandı.\n"
-            f"🎴 Sıra: **{sonraki_ad}**"
-        )
+        if gorsel_renk and gorsel_sayi:
+            from src.game.okey_engine import COLOR_EMOJI, COLOR_NAMES
+            temsil = f"{COLOR_EMOJI.get(gorsel_renk,'')}{COLOR_NAMES.get(gorsel_renk,gorsel_renk)} {gorsel_sayi}"
+            at_mesaj = (
+                f"🃏 **{interaction.user.display_name}** jokeri **{temsil}** olarak attı!\n"
+                f"🎴 Sıra: **{sonraki_ad}**"
+            )
+        else:
+            joker_tur_str = "okey taşını" if joker_turu == "okey" else "sahte jokeri"
+            at_mesaj = (
+                f"🃏 **{interaction.user.display_name}** {joker_tur_str} attı!\n"
+                f"🎴 Sıra: **{sonraki_ad}**"
+            )
+
+        await interaction.response.send_message(at_mesaj)
         await self._mesaj_sayaci_artir(channel, masa_id)
         await self._bot_tur_kontrol(channel, masa_id)
 

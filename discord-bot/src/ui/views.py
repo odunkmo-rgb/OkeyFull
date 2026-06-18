@@ -153,6 +153,85 @@ class TasAtModal(Modal, title="🗑️ Hangi Taşı Atacaksınız?"):
         await game_manager.tas_at_renk_sayi(interaction, self.masa_id, renk, sayi)
 
 
+class JokerKullanModal(Modal, title="🃏 Joker Taşı — Hangi Taş Olarak Atacaksın?"):
+    """
+    Oyuncu jokerin hangi renk+sayıyı temsil edeceğini seçer.
+    Bu seçim tamamen görseldir — joker çöp yığınında o taş olarak görünür.
+    Joker mekanik olarak wildcard olmaya devam eder.
+    """
+    def __init__(self, masa_id: str, joker_turu: str = "sahte"):
+        super().__init__()
+        self.masa_id = masa_id
+        self.joker_turu = joker_turu  # "sahte" veya "okey"
+
+    joker_renk_input = TextInput(
+        label="Joker hangi rengi temsil etsin?",
+        placeholder="kirmizi / sari / mavi / siyah  (boş bırakılabilir)",
+        min_length=0, max_length=10, required=False
+    )
+    joker_sayi_input = TextInput(
+        label="Joker hangi sayıyı temsil etsin? (1-13)",
+        placeholder="Örn: 7  (boş bırakılabilir)",
+        min_length=0, max_length=2, required=False
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        from src.game.okey_engine import COLOR_INPUT_MAP
+        from src.game.manager import game_manager
+
+        gorsel_renk = None
+        gorsel_sayi = None
+
+        renk_raw = self.joker_renk_input.value.strip().lower()
+        sayi_raw = self.joker_sayi_input.value.strip()
+
+        if renk_raw:
+            gorsel_renk = COLOR_INPUT_MAP.get(renk_raw)
+            if not gorsel_renk:
+                await interaction.response.send_message(
+                    "❌ Geçersiz renk!\n"
+                    "`kirmizi` · `sari` · `mavi` · `siyah` yazın veya boş bırakın.",
+                    ephemeral=True)
+                return
+
+        if sayi_raw:
+            try:
+                gorsel_sayi = int(sayi_raw)
+            except ValueError:
+                await interaction.response.send_message(
+                    "❌ Geçersiz sayı — 1-13 arası bir sayı girin veya boş bırakın.",
+                    ephemeral=True)
+                return
+            if not 1 <= gorsel_sayi <= 13:
+                await interaction.response.send_message(
+                    "❌ Sayı 1-13 arasında olmalı.", ephemeral=True)
+                return
+
+        await game_manager.joker_at(
+            interaction, self.masa_id,
+            gorsel_renk=gorsel_renk,
+            gorsel_sayi=gorsel_sayi,
+            joker_turu=self.joker_turu
+        )
+
+
+class JokerSecimView(View):
+    """Joker türünü seçmek için geçici buton paneli (sahte joker mi, okey taşı mı)."""
+    def __init__(self, masa_id: str):
+        super().__init__(timeout=60)
+        self.masa_id = masa_id
+
+    @discord.ui.button(label="🃏 Sahte Jokeri At", style=discord.ButtonStyle.primary)
+    async def sahte_joker_at(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_modal(JokerKullanModal(self.masa_id, joker_turu="sahte"))
+        self.stop()
+
+    @discord.ui.button(label="⭐ Okey Taşını At", style=discord.ButtonStyle.secondary)
+    async def okey_tas_at(self, interaction: discord.Interaction, button: Button):
+        await interaction.response.send_modal(JokerKullanModal(self.masa_id, joker_turu="okey"))
+        self.stop()
+
+
 # ─── Per seçim view'ı ────────────────────────────────────────────────────────
 
 class PerSecimView(View):
@@ -219,8 +298,10 @@ def build_masa_view(masa_id: str) -> View:
         await i.response.send_modal(TasAtModal(masa_id))
 
     async def joker_at_cb(i):
-        from src.game.manager import game_manager
-        await game_manager.joker_at(i, masa_id)
+        await i.response.send_message(
+            "🃏 **Joker Taşı At** — Hangi joker taşını atmak istiyorsun?",
+            view=JokerSecimView(masa_id), ephemeral=True
+        )
 
     async def okey_cb(i):
         from src.game.manager import game_manager
@@ -243,7 +324,7 @@ def build_masa_view(masa_id: str) -> View:
         Button(label="Talon'dan Çek",      style=discord.ButtonStyle.primary,   emoji="🎴", custom_id=f"talon_{masa_id}",    row=1),
         Button(label="Son Taşı Al",        style=discord.ButtonStyle.secondary, emoji="♻️", custom_id=f"son_{masa_id}",      row=1),
         Button(label="Taş At",             style=discord.ButtonStyle.danger,    emoji="🗑️", custom_id=f"at_{masa_id}",       row=1),
-        Button(label="Joker At (-50🪙)",   style=discord.ButtonStyle.secondary, emoji="🃏", custom_id=f"jokerat_{masa_id}",  row=1),
+        Button(label="Joker Ata 🃏",        style=discord.ButtonStyle.secondary, emoji="✨", custom_id=f"jokerat_{masa_id}",  row=1),
         # row 2
         Button(label="OKEY AÇ! 🏆",       style=discord.ButtonStyle.success,   emoji="🎉", custom_id=f"okey_{masa_id}",     row=2),
         Button(label="Masayı Başlat",      style=discord.ButtonStyle.primary,   emoji="▶️", custom_id=f"baslat_{masa_id}",   row=2),

@@ -16,8 +16,6 @@ COLOR_INPUT_MAP = {
     "siyah": "siyah", "si": "siyah", "black": "siyah",
 }
 
-JOKER_AT_CEZA = 50  # Sahte joker atıldığında chip cezası
-
 # Kazanma bonusları
 BONUS_NORMAL       = 200
 BONUS_SAHTE_JOKER  = 300   # Sahte jokeri wildcard olarak kullanarak kazanma
@@ -32,12 +30,26 @@ class GameState(Enum):
 class Tas:
     renk: str
     sayi: int
-    okey: bool = False       # True = fiziksel sahte joker taşı
+    okey: bool = False              # True = fiziksel sahte joker taşı
+    gorsel_renk: Optional[str] = None  # Joker için oyuncunun atadığı renk (sadece görsel)
+    gorsel_sayi: Optional[int] = None  # Joker için oyuncunun atadığı sayı (sadece görsel)
 
     def __str__(self):
         if self.okey:
-            return "🃏Joker"
+            if self.gorsel_renk and self.gorsel_sayi:
+                emoji = COLOR_EMOJI.get(self.gorsel_renk, "🃏")
+                return f"{emoji}{self.gorsel_sayi}🃏"
+            return "🃏"
         return f"{COLOR_EMOJI[self.renk]}{self.sayi}"
+
+    def display_label(self) -> str:
+        """El görüntüsünde insan okunur etiket."""
+        if self.okey:
+            if self.gorsel_renk and self.gorsel_sayi:
+                renk_ad = COLOR_NAMES.get(self.gorsel_renk, self.gorsel_renk)
+                return f"Joker ({renk_ad} {self.gorsel_sayi})"
+            return "Joker (Serbest 🃏)"
+        return f"{COLOR_NAMES.get(self.renk, self.renk)} {self.sayi}"
 
     def __eq__(self, other):
         if not isinstance(other, Tas):
@@ -323,7 +335,7 @@ class OkeyGame:
         return tas
 
     def tas_at_by_renk_sayi(self, user_id: int, renk: str, sayi: int) -> Optional[Tas]:
-        """Normal taş at. Sahte joker atanamaz — None döner."""
+        """Renk+sayı ile taş at. Normal taşlar ve jokerler (renk='joker') desteklenir."""
         if self.siradaki_oyuncu_id() != user_id:     return None
         if not self.el_cekti.get(user_id):           return None
         el = self.oyuncu_elleri.get(user_id, [])
@@ -336,21 +348,22 @@ class OkeyGame:
         return None
 
     def tas_at(self, user_id: int, idx: int) -> Optional[Tas]:
-        """Normal taş at. Sahte joker atanamaz — None döner."""
+        """İndeks ile taş at. Joker dahil her taş atılabilir."""
         if self.siradaki_oyuncu_id() != user_id:     return None
         if not self.el_cekti.get(user_id):           return None
         el = self.oyuncu_elleri.get(user_id, [])
         if idx < 0 or idx >= len(el):                return None
-        if el[idx].okey:
-            return None  # Sahte joker normal yolla atanamaz
         tas = el.pop(idx)
         self.cop_yigi.append(tas)
         self._tur_bitir(user_id)
         return tas
 
-    def sahte_joker_at(self, user_id: int) -> tuple[bool, str]:
+    def joker_at(self, user_id: int,
+                 gorsel_renk: Optional[str] = None,
+                 gorsel_sayi: Optional[int] = None) -> tuple[bool, str]:
         """
-        Sahte jokeri ceza ödeyerek at.
+        Sahte jokeri istenen renk+sayı temsiliyle at (cezasız).
+        gorsel_renk/gorsel_sayi: jokerin görsel olarak hangi taşı temsil ettiği.
         Returns: (basarili, mesaj)
         """
         if self.siradaki_oyuncu_id() != user_id:
@@ -362,6 +375,40 @@ class OkeyGame:
         if idx is None:
             return False, "Elinizde sahte joker yok!"
         tas = el.pop(idx)
+        if gorsel_renk:
+            tas.gorsel_renk = gorsel_renk
+        if gorsel_sayi:
+            tas.gorsel_sayi = gorsel_sayi
+        self.cop_yigi.append(tas)
+        self._tur_bitir(user_id)
+        return True, "ok"
+
+    def okey_tas_at(self, user_id: int,
+                    gorsel_renk: Optional[str] = None,
+                    gorsel_sayi: Optional[int] = None) -> tuple[bool, str]:
+        """
+        Renkli okey taşını (göstergeden belirlenen) istenen temsille at (cezasız).
+        Returns: (basarili, mesaj)
+        """
+        if self.siradaki_oyuncu_id() != user_id:
+            return False, "Sıra sizde değil!"
+        if not self.el_cekti.get(user_id):
+            return False, "Önce taş çekin!"
+        if not self.okey_tas:
+            return False, "Okey taşı belirlenmemiş."
+        el = self.oyuncu_elleri.get(user_id, [])
+        idx = next(
+            (i for i, t in enumerate(el)
+             if not t.okey and t.renk == self.okey_tas.renk and t.sayi == self.okey_tas.sayi),
+            None
+        )
+        if idx is None:
+            return False, "Elinizde okey taşı yok!"
+        tas = el.pop(idx)
+        if gorsel_renk:
+            tas.gorsel_renk = gorsel_renk
+        if gorsel_sayi:
+            tas.gorsel_sayi = gorsel_sayi
         self.cop_yigi.append(tas)
         self._tur_bitir(user_id)
         return True, "ok"
