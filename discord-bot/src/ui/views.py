@@ -218,6 +218,10 @@ def build_masa_view(masa_id: str) -> View:
     async def at_cb(i):
         await i.response.send_modal(TasAtModal(masa_id))
 
+    async def joker_at_cb(i):
+        from src.game.manager import game_manager
+        await game_manager.joker_at(i, masa_id)
+
     async def okey_cb(i):
         from src.game.manager import game_manager
         await game_manager.okey_ac(i, masa_id)
@@ -232,19 +236,20 @@ def build_masa_view(masa_id: str) -> View:
 
     buttons = [
         # row 0
-        Button(label="Masaya Katıl",    style=discord.ButtonStyle.success,   emoji="✅", custom_id=f"katil_{masa_id}",  row=0),
-        Button(label="Perleri Diz",     style=discord.ButtonStyle.secondary, emoji="🀄", custom_id=f"per_{masa_id}",    row=0),
-        Button(label="El Gör",          style=discord.ButtonStyle.primary,   emoji="👁️", custom_id=f"el_{masa_id}",     row=0),
+        Button(label="Masaya Katıl",       style=discord.ButtonStyle.success,   emoji="✅", custom_id=f"katil_{masa_id}",    row=0),
+        Button(label="Perleri Diz",        style=discord.ButtonStyle.secondary, emoji="🀄", custom_id=f"per_{masa_id}",      row=0),
+        Button(label="El Gör",             style=discord.ButtonStyle.primary,   emoji="👁️", custom_id=f"el_{masa_id}",       row=0),
         # row 1
-        Button(label="Talon'dan Çek",   style=discord.ButtonStyle.primary,   emoji="🎴", custom_id=f"talon_{masa_id}",  row=1),
-        Button(label="Son Taşı Al",     style=discord.ButtonStyle.secondary, emoji="♻️", custom_id=f"son_{masa_id}",    row=1),
-        Button(label="Taş At",          style=discord.ButtonStyle.danger,    emoji="🗑️", custom_id=f"at_{masa_id}",     row=1),
+        Button(label="Talon'dan Çek",      style=discord.ButtonStyle.primary,   emoji="🎴", custom_id=f"talon_{masa_id}",    row=1),
+        Button(label="Son Taşı Al",        style=discord.ButtonStyle.secondary, emoji="♻️", custom_id=f"son_{masa_id}",      row=1),
+        Button(label="Taş At",             style=discord.ButtonStyle.danger,    emoji="🗑️", custom_id=f"at_{masa_id}",       row=1),
+        Button(label="Joker At (-50🪙)",   style=discord.ButtonStyle.secondary, emoji="🃏", custom_id=f"jokerat_{masa_id}",  row=1),
         # row 2
-        Button(label="OKEY AÇ! 🏆",    style=discord.ButtonStyle.success,   emoji="🎉", custom_id=f"okey_{masa_id}",   row=2),
-        Button(label="Masayı Başlat",   style=discord.ButtonStyle.primary,   emoji="▶️", custom_id=f"baslat_{masa_id}", row=2),
-        Button(label="Masadan Ayrıl",   style=discord.ButtonStyle.danger,    emoji="🚪", custom_id=f"ayril_{masa_id}",  row=2),
+        Button(label="OKEY AÇ! 🏆",       style=discord.ButtonStyle.success,   emoji="🎉", custom_id=f"okey_{masa_id}",     row=2),
+        Button(label="Masayı Başlat",      style=discord.ButtonStyle.primary,   emoji="▶️", custom_id=f"baslat_{masa_id}",   row=2),
+        Button(label="Masadan Ayrıl",      style=discord.ButtonStyle.danger,    emoji="🚪", custom_id=f"ayril_{masa_id}",    row=2),
     ]
-    cbs = [katil_cb, per_cb, el_cb, talon_cb, son_tas_cb, at_cb, okey_cb, baslat_cb, ayril_cb]
+    cbs = [katil_cb, per_cb, el_cb, talon_cb, son_tas_cb, at_cb, joker_at_cb, okey_cb, baslat_cb, ayril_cb]
 
     for btn, cb in zip(buttons, cbs):
         btn.callback = cb

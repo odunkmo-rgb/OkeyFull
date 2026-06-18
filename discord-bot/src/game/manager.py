@@ -2,7 +2,10 @@ import discord
 import asyncio
 import uuid
 from typing import Optional
-from src.game.okey_engine import OkeyGame, GameState, COLOR_EMOJI, COLOR_NAMES
+from src.game.okey_engine import (
+    OkeyGame, GameState, COLOR_EMOJI, COLOR_NAMES,
+    JOKER_AT_CEZA, BONUS_NORMAL, BONUS_SAHTE_JOKER, BONUS_CIFTE_OKEY
+)
 from src.economy.db import ensure_oyuncu, update_cip, mac_bitti
 from src.ui.render import render_el, render_son_tas
 
@@ -747,33 +750,78 @@ class GameManager:
         if masa.siradaki_oyuncu_id() != interaction.user.id:
             await interaction.response.send_message("❌ Sıra sizde değil!", ephemeral=True); return
 
-        # Timeout iptal et
         self._zaman_asimi_iptal(masa_id, interaction.user.id)
 
-        kazandi = masa.okey_ac(interaction.user.id)
+        kazandi, kazanma_turu = masa.okey_ac(interaction.user.id)
         if kazandi:
+            tur_mesaj = {
+                "cifte_okey":  "🌟🌟 **ÇİFTE OKEY!** Sahte jokeri kullanmadan KAZANDIN! **+500 🪙** 🌟🌟",
+                "sahte_joker": "🃏🏆 **SAHTE JOKER ile OKEY!** +300 🪙 bonus kazandın!",
+                "normal":      "🎉🏆 **OKEY AÇILDI! TEBRİKLER!** +200 🪙",
+            }.get(kazanma_turu, "🎉 OKEY AÇILDI!")
+
             await interaction.response.send_message(
-                f"🎉🏆 **{interaction.user.display_name} OKEY AÇTI! TEBRİKLER!** 🏆🎉"
+                f"{tur_mesaj}\n**{interaction.user.display_name}** kazandı!"
             )
             channel = interaction.channel
             if masa.oyun_kanal_id and interaction.guild:
                 oy = interaction.guild.get_channel(masa.oyun_kanal_id)
                 if oy:
                     channel = oy
-            await self._oyun_bitti(channel, masa_id, interaction.user.id, interaction.guild)
+            await self._oyun_bitti(channel, masa_id, interaction.user.id, interaction.guild,
+                                   kazanma_turu=kazanma_turu)
         else:
             await interaction.response.send_message(
-                "❌ Eliniz henüz geçerli değil. Devam edin!", ephemeral=True
+                "❌ Eliniz henüz geçerli değil!\n"
+                "💡 Tüm taşlarınız **grup** (aynı sayı, farklı renk) veya "
+                "**seri** (aynı renk, ardışık sayı) oluşturmalı. "
+                "Okey 🃏 ve renkli okey taşları wildcard olarak kullanılabilir.",
+                ephemeral=True
             )
 
+    # ── Joker at (cezalı) ────────────────────────────────────────────────────
+    async def joker_at(self, interaction: discord.Interaction, masa_id: str):
+        masa = self.masalar.get(masa_id)
+        if not masa:
+            await interaction.response.send_message("❌ Masa bulunamadı.", ephemeral=True); return
+        if masa.durum != GameState.PLAYING:
+            await interaction.response.send_message("❌ Oyun başlamadı.", ephemeral=True); return
+        if masa.siradaki_oyuncu_id() != interaction.user.id:
+            await interaction.response.send_message("❌ Sıra sizde değil!", ephemeral=True); return
+
+        basarili, hata = masa.sahte_joker_at(interaction.user.id)
+        if not basarili:
+            await interaction.response.send_message(f"❌ {hata}", ephemeral=True); return
+
+        # Ceza uygula
+        self._zaman_asimi_iptal(masa_id, interaction.user.id)
+        await update_cip(interaction.user.id, -JOKER_AT_CEZA)
+
+        sonraki_id = masa.siradaki_oyuncu_id()
+        sonraki_ad = masa.oyuncu_adlari.get(sonraki_id, "?")
+
+        channel = interaction.channel
+        if masa.oyun_kanal_id and interaction.guild:
+            oy = interaction.guild.get_channel(masa.oyun_kanal_id)
+            if oy:
+                channel = oy
+
+        await interaction.response.send_message(
+            f"🃏 **{interaction.user.display_name}** sahte jokeri attı! "
+            f"**-{JOKER_AT_CEZA} 🪙** ceza uygulandı.\n"
+            f"🎴 Sıra: **{sonraki_ad}**"
+        )
+        await self._mesaj_sayaci_artir(channel, masa_id)
+        await self._bot_tur_kontrol(channel, masa_id)
+
     # ── Oyun bitti ──────────────────────────────────────────────────────────
-    async def _oyun_bitti(self, channel, masa_id: str, kazanan_id: int, guild: Optional[discord.Guild]):
+    async def _oyun_bitti(self, channel, masa_id: str, kazanan_id: int,
+                          guild: Optional[discord.Guild], kazanma_turu: str = "normal"):
         masa = self.masalar.get(masa_id)
         if not masa:
             return
         masa.durum = GameState.FINISHED
 
-        # Tüm timeout task'larını iptal et
         for uid in list(masa.oyuncular):
             self._zaman_asimi_iptal(masa_id, uid)
 
@@ -782,17 +830,43 @@ class GameManager:
 
         await mac_bitti(kazanan_id, masa.oyuncular, masa.bahis, masa_id)
 
+        # Kazanma türüne göre bonus uygula
+        bonus_ekstra = 0
+        if kazanan_id > 0:  # Gerçek oyuncu
+            if kazanma_turu == "cifte_okey":
+                bonus_ekstra = BONUS_CIFTE_OKEY - BONUS_NORMAL   # 300 ekstra (mac_bitti zaten 200 verdi)
+            elif kazanma_turu == "sahte_joker":
+                bonus_ekstra = BONUS_SAHTE_JOKER - BONUS_NORMAL   # 100 ekstra
+            if bonus_ekstra > 0:
+                await update_cip(kazanan_id, bonus_ekstra)
+
+        # Embed oluştur
+        tur_ikonu = {"cifte_okey": "🌟", "sahte_joker": "🃏", "normal": "🏆"}.get(kazanma_turu, "🏆")
         embed = discord.Embed(
-            title="🏆 Oyun Bitti!",
+            title=f"{tur_ikonu} Oyun Bitti!",
             description=f"🎊 **{kazanan_ad}** oyunu kazandı!",
             color=0xf1c40f
         )
+
+        if kazanma_turu == "cifte_okey":
+            embed.add_field(
+                name="🌟 Çifte Okey Bonusu!",
+                value="Sahte jokeri kullanmadan kazandınız! Harika oyun!",
+                inline=False
+            )
+        elif kazanma_turu == "sahte_joker":
+            embed.add_field(
+                name="🃏 Sahte Joker Bonusu!",
+                value="Sahte jokeri ustalıkla kullanarak kazandınız!",
+                inline=False
+            )
+
+        temel_kazanim = BONUS_NORMAL + (masa.bahis * (len(gercek) - 1) if masa.bahis > 0 else 0)
+        toplam_kazanim = temel_kazanim + bonus_ekstra
+
         if masa.bahis > 0:
-            kazanim = 200 + masa.bahis * (len(gercek) - 1)
-            embed.add_field(name="💰 Bahis",    value=f"{masa.bahis:,} 🪙", inline=True)
-            embed.add_field(name="🎁 Kazanılan", value=f"{kazanim:,} 🪙",  inline=True)
-        else:
-            embed.add_field(name="🎁 Kazanılan", value="200 🪙 + Puan", inline=True)
+            embed.add_field(name="💰 Bahis",     value=f"{masa.bahis:,} 🪙", inline=True)
+        embed.add_field(name="🎁 Kazanılan",  value=f"{toplam_kazanim:,} 🪙", inline=True)
         embed.set_footer(text=f"Kanal {SONUC_BEKLEME_SN // 60} dakika sonra silinecek.")
 
         # Önce eski panel mesajını sil
