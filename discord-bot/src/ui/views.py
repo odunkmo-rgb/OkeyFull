@@ -11,27 +11,35 @@ class LobiView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
+    async def _izin(self, interaction: discord.Interaction) -> bool:
+        from src.game.manager import game_manager
+        return await game_manager.erisim_var_mi(interaction)
+
     @discord.ui.button(label="4 Kişilik Masa Kur", style=discord.ButtonStyle.primary,
                        emoji="👥", custom_id="lobi_4kisi", row=0)
     async def dort_kisi(self, interaction: discord.Interaction, button: Button):
+        if not await self._izin(interaction): return
         from src.game.manager import game_manager
         await game_manager.masa_kur(interaction, max_oyuncu=4, bot_modu=False)
 
     @discord.ui.button(label="Botlara Karşı Oyna", style=discord.ButtonStyle.success,
                        emoji="🤖", custom_id="lobi_botlar", row=0)
     async def bot_modu(self, interaction: discord.Interaction, button: Button):
+        if not await self._izin(interaction): return
         from src.game.manager import game_manager
         await game_manager.masa_kur(interaction, max_oyuncu=4, bot_modu=True)
 
     @discord.ui.button(label="Karışık Masa", style=discord.ButtonStyle.secondary,
                        emoji="🎲", custom_id="lobi_karisik", row=0)
     async def karisik(self, interaction: discord.Interaction, button: Button):
+        if not await self._izin(interaction): return
         from src.game.manager import game_manager
         await game_manager.masa_kur(interaction, max_oyuncu=4, bot_modu="karisik")
 
     @discord.ui.button(label="Bahisli VIP Masa", style=discord.ButtonStyle.danger,
                        emoji="💰", custom_id="lobi_vip", row=1)
     async def vip_masa(self, interaction: discord.Interaction, button: Button):
+        if not await self._izin(interaction): return
         await interaction.response.send_modal(VIPMasaModal())
 
     @discord.ui.button(label="Profilim & Sıralama", style=discord.ButtonStyle.secondary,
@@ -269,12 +277,18 @@ class PerSecimView(View):
 def build_masa_view(masa_id: str) -> View:
     view = View(timeout=None)
 
+    async def _izin(i: "discord.Interaction") -> bool:
+        """Rol kontrolü — erişim yoksa hata mesajı gönderir ve False döner."""
+        from src.game.manager import game_manager
+        return await game_manager.erisim_var_mi(i)
+
     async def katil_cb(i):
+        if not await _izin(i): return
         from src.game.manager import game_manager
         await game_manager.masaya_katil(i, masa_id)
 
     async def per_cb(i):
-        """Per seçim menüsünü aç."""
+        if not await _izin(i): return
         await i.response.send_message(
             "🀄 **Per dizme modu seçin:**\n"
             "• **Aynı Renk + Ardışık** → 🔴1 🔴2 🔴3 gibi sıralar\n"
@@ -283,35 +297,43 @@ def build_masa_view(masa_id: str) -> View:
         )
 
     async def el_cb(i):
+        if not await _izin(i): return
         from src.game.manager import game_manager
         await game_manager.el_goster(i, masa_id)
 
     async def talon_cb(i):
+        if not await _izin(i): return
         from src.game.manager import game_manager
         await game_manager.talon_cek(i, masa_id)
 
     async def son_tas_cb(i):
+        if not await _izin(i): return
         from src.game.manager import game_manager
         await game_manager.son_tasi_al(i, masa_id)
 
     async def at_cb(i):
+        if not await _izin(i): return
         await i.response.send_modal(TasAtModal(masa_id))
 
     async def joker_at_cb(i):
+        if not await _izin(i): return
         await i.response.send_message(
             "🃏 **Joker Taşı At** — Hangi joker taşını atmak istiyorsun?",
             view=JokerSecimView(masa_id), ephemeral=True
         )
 
     async def okey_cb(i):
+        if not await _izin(i): return
         from src.game.manager import game_manager
         await game_manager.okey_ac(i, masa_id)
 
     async def baslat_cb(i):
+        if not await _izin(i): return
         from src.game.manager import game_manager
         await game_manager.masayi_baslat(i, masa_id)
 
     async def ayril_cb(i):
+        if not await _izin(i): return
         from src.game.manager import game_manager
         await game_manager.masadan_ayril(i, masa_id)
 

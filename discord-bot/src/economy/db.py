@@ -41,6 +41,12 @@ async def init_db():
                 tarih       TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS okey_ayarlar (
+                guild_id    INTEGER PRIMARY KEY,
+                rol_idleri  TEXT DEFAULT '[]'
+            )
+        """)
         await db.commit()
 
 async def get_oyuncu(user_id: int) -> dict:
@@ -178,3 +184,28 @@ async def vip_mac_oyna(user_id: int, bahis: int) -> tuple[str, int, int]:
             """, (bahis, user_id))
             await db.commit()
             return "kaybet", -bahis, max(0, cip - bahis)
+
+
+# ── Okey ayarları (izin rolleri) ─────────────────────────────────────────────
+
+async def get_izin_roller(guild_id: int) -> list:
+    import json
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT rol_idleri FROM okey_ayarlar WHERE guild_id = ?", (guild_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                return json.loads(row["rol_idleri"])
+            return []
+
+
+async def set_izin_roller(guild_id: int, rol_idleri: list) -> None:
+    import json
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO okey_ayarlar (guild_id, rol_idleri) VALUES (?, ?)",
+            (guild_id, json.dumps(rol_idleri))
+        )
+        await db.commit()

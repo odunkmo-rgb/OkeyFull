@@ -5,7 +5,8 @@ import os
 import asyncio
 from src.economy.db import (
     init_db, ensure_oyuncu, get_oyuncu, gunluk_al,
-    transfer_cip, get_liderlik, update_cip, vip_mac_oyna
+    transfer_cip, get_liderlik, update_cip, vip_mac_oyna,
+    get_izin_roller
 )
 from src.ui.views import LobiView, build_masa_view
 from src.ui.render import render_profil
@@ -178,6 +179,79 @@ async def okey_ayril(interaction: discord.Interaction):
     await game_manager.masadan_ayril(interaction, mid)
 
 bot.tree.add_command(okey_group)
+
+# ─── OKEY ROL KOMUTU (sadece yönetici) ───────────────────────────────────────
+
+@bot.tree.command(
+    name="okey-rol",
+    description="Okey butonlarını kullanabilecek rolleri belirler. (Sadece yönetici)"
+)
+@app_commands.describe(
+    roller="İzin verilecek rol ID'leri — boşlukla ayır. Boş bırakılırsa herkes erişebilir."
+)
+@app_commands.default_permissions(administrator=True)
+async def okey_rol(interaction: discord.Interaction, roller: str = ""):
+    if interaction.user.id != 1513128919182606378:
+        await interaction.response.send_message(
+            "❌ Bu komutu sadece bot yöneticisi kullanabilir.", ephemeral=True
+        )
+        return
+
+    guild_id = interaction.guild_id
+    if not guild_id:
+        await interaction.response.send_message("❌ Bu komut sunucuda kullanılmalı.", ephemeral=True)
+        return
+
+    if not roller.strip():
+        await game_manager.izin_rol_guncelle(guild_id, [])
+        await interaction.response.send_message(
+            "✅ **Rol kısıtlaması kaldırıldı.**\n"
+            "Artık sunucudaki **herkes** Okey butonlarını kullanabilir.",
+            ephemeral=True
+        )
+        return
+
+    # ID'leri parse et
+    gecerli_ids = []
+    hatali = []
+    for parca in roller.split():
+        parca = parca.strip().lstrip("<@&>")
+        try:
+            rid = int(parca)
+            rol = interaction.guild.get_role(rid)
+            if rol:
+                gecerli_ids.append(rid)
+            else:
+                hatali.append(parca)
+        except ValueError:
+            hatali.append(parca)
+
+    if not gecerli_ids:
+        await interaction.response.send_message(
+            f"❌ Geçerli rol ID'si bulunamadı. Girilen: `{roller}`\n"
+            "Sunucudaki rol ID'lerini kullandığınızdan emin olun.",
+            ephemeral=True
+        )
+        return
+
+    await game_manager.izin_rol_guncelle(guild_id, gecerli_ids)
+
+    mevcut_roller = interaction.guild
+    rol_isimleri = []
+    for rid in gecerli_ids:
+        rol = interaction.guild.get_role(rid)
+        if rol:
+            rol_isimleri.append(f"• {rol.mention} (`{rid}`)")
+
+    hata_str = f"\n⚠️ Bulunamayan ID'ler: `{'`, `'.join(hatali)}`" if hatali else ""
+    await interaction.response.send_message(
+        f"✅ **Okey izin rolleri güncellendi!**\n\n"
+        f"**Bu rollere sahip üyeler Okey oynayabilir:**\n"
+        + "\n".join(rol_isimleri)
+        + hata_str
+        + "\n\n💡 *Sıfırlamak için `/okey-rol` komutunu boş bırakarak çalıştırın.*",
+        ephemeral=True
+    )
 
 # ─── EKONOMİ KOMUTLARI ───────────────────────────────────────────────────────
 

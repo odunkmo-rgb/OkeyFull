@@ -6,10 +6,11 @@ from src.game.okey_engine import (
     OkeyGame, GameState, COLOR_EMOJI, COLOR_NAMES,
     BONUS_NORMAL, BONUS_SAHTE_JOKER, BONUS_CIFTE_OKEY
 )
-from src.economy.db import ensure_oyuncu, update_cip, mac_bitti
+from src.economy.db import ensure_oyuncu, update_cip, mac_bitti, get_izin_roller, set_izin_roller
 from src.ui.render import render_el, render_son_tas
 
 IZLEYICI_ROL_ID  = 1513129008554971256
+ADMIN_USER_ID    = 1513128919182606378
 KARISIK_BEKLEME  = 30
 BOT_SAYAC        = 10
 ZAMAN_ASIMI_SN   = 5 * 60   # 5 dakika
@@ -21,6 +22,49 @@ class GameManager:
         self.masalar: dict[str, OkeyGame] = {}
         # Timeout task'ları: "{masa_id}_{user_id}" -> asyncio.Task
         self.timeout_tasks: dict[str, asyncio.Task] = {}
+        # İzin rolleri: guild_id -> [rol_id, ...] (boş = herkes erişebilir)
+        self.izin_roller: dict[int, list[int]] = {}
+
+    async def yukle_izin_roller(self, guild_id: int):
+        """DB'den izin rollerini yükle."""
+        self.izin_roller[guild_id] = await get_izin_roller(guild_id)
+
+    async def izin_rol_guncelle(self, guild_id: int, rol_idleri: list[int]):
+        """İzin rollerini kaydet ve belleği güncelle."""
+        await set_izin_roller(guild_id, rol_idleri)
+        self.izin_roller[guild_id] = rol_idleri
+
+    async def erisim_var_mi(self, interaction: discord.Interaction) -> bool:
+        """
+        Kullanıcının Okey butonlarını kullanma yetkisi var mı?
+        - Admin her zaman erişebilir.
+        - İzin rolleri ayarlanmamışsa herkes erişebilir.
+        - Ayarlandıysa sadece o rollere sahip olanlar erişebilir.
+        Erişim yoksa ephemeral hata mesajı gönderir ve False döner.
+        """
+        # Admin her zaman erişebilir
+        if interaction.user.id == ADMIN_USER_ID:
+            return True
+        guild_id = interaction.guild_id
+        if not guild_id:
+            return True  # DM'de kısıtlama yok
+        # Önce DB'den yükle (cache miss durumunda)
+        if guild_id not in self.izin_roller:
+            await self.yukle_izin_roller(guild_id)
+        roller = self.izin_roller.get(guild_id, [])
+        if not roller:
+            return True  # Rol ayarlanmamış → herkes erişebilir
+        # Kullanıcının rollerini kontrol et
+        if hasattr(interaction.user, "roles"):
+            user_rol_ids = {r.id for r in interaction.user.roles}
+            if any(rid in user_rol_ids for rid in roller):
+                return True
+        await interaction.response.send_message(
+            "❌ Bu işlemi yapabilmek için gerekli role sahip değilsiniz.\n"
+            "Sunucu yöneticinize başvurun.",
+            ephemeral=True
+        )
+        return False
 
     def yeni_masa_id(self) -> str:
         return uuid.uuid4().hex[:8].upper()
@@ -191,6 +235,16 @@ class GameManager:
         await asyncio.sleep(gecikme)
         try:
             await kanal.delete(reason="Okey oyunu bitti")
+        except Exception:
+            pass
+
+    async def _lobi_mesaji_sil(self, guild: discord.Guild, lobi_kanal_id: int, lobi_msg_id: int):
+        """Lobi kanalındaki 'Oyun başladı' mesajını oyun bitince sil."""
+        try:
+            kanal = guild.get_channel(lobi_kanal_id)
+            if kanal:
+                msg = await kanal.fetch_message(lobi_msg_id)
+                await msg.delete()
         except Exception:
             pass
 
@@ -494,10 +548,12 @@ class GameManager:
         oyuncu_list = self._oyuncu_mention_str(masa, guild)
         if kanal and oyun_kanali and oyun_kanali.id != kanal.id:
             try:
-                await kanal.send(
+                lobi_msg = await kanal.send(
                     f"🎲 **Oyun başladı!** Oyuncular: {oyuncu_list}\n"
                     f"📍 Oyun kanalı: {oyun_kanali.mention}"
                 )
+                masa.lobi_mesaj_id = lobi_msg.id
+                masa.lobi_kanal_id = kanal.id
             except Exception:
                 pass
 
@@ -950,14 +1006,20 @@ class GameManager:
         if channel:
             await channel.send(embed=embed)
 
-        kanal_id = masa.oyun_kanal_id
+        kanal_id      = masa.oyun_kanal_id
+        lobi_msg_id   = masa.lobi_mesaj_id
+        lobi_kanal_id = masa.lobi_kanal_id
         del self.masalar[masa_id]
 
-        # 2 dakika bekle, sonra kanalı sil
+        # 2 dakika bekle, sonra oyun kanalını sil
         if guild and kanal_id:
             oy = guild.get_channel(kanal_id)
             if oy:
                 asyncio.create_task(self._kanal_sil_bekle(oy, SONUC_BEKLEME_SN))
+
+        # Lobi kanalındaki "Oyun başladı" mesajını hemen sil
+        if guild and lobi_kanal_id and lobi_msg_id:
+            asyncio.create_task(self._lobi_mesaji_sil(guild, lobi_kanal_id, lobi_msg_id))
 
     # ── Masadan ayrıl ────────────────────────────────────────────────────────
     async def masadan_ayril(self, interaction: discord.Interaction, masa_id: str):

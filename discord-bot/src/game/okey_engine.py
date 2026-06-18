@@ -248,6 +248,8 @@ class OkeyGame:
     oyun_kanal_id:   Optional[int]      = None
     mesaj_id:        Optional[int]      = None
     panel_mesaj_id:  Optional[int]      = None
+    lobi_mesaj_id:   Optional[int]      = None   # Lobi kanalındaki "Oyun başladı" mesajı
+    lobi_kanal_id:   Optional[int]      = None   # Lobi kanal ID'si (silinecek mesaj için)
     izleyiciler:     list[int]          = field(default_factory=list)
     bot_oyuncular:   set[int]           = field(default_factory=set)
     el_cekti:        dict[int, bool]    = field(default_factory=dict)
