@@ -667,6 +667,7 @@ name = "repl-nix-workspace"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiohttp" },
     { name = "aiosqlite" },
     { name = "discord-py" },
     { name = "pillow" },
@@ -674,6 +675,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiohttp", specifier = ">=3.14.1" },
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "discord-py", specifier = ">=2.7.1" },
     { name = "pillow", specifier = ">=12.2.0" },
