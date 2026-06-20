@@ -236,8 +236,13 @@ class JokerSecimView(View):
     @discord.ui.button(label="🃏 Joker Ata", style=discord.ButtonStyle.primary)
     async def sahte_joker_at(self, interaction: discord.Interaction, button: Button):
         """Sahte okeyı doğrudan at — kimlik sabit (okey_tas), renk/sayı sorulmaz."""
-        from src.game.manager import game_manager
-        await game_manager.joker_at(interaction, self.masa_id, joker_turu="sahte")
+        # defer() hemen çağrılır: interaction 3 sn içinde yanıt görmezse "failed" gösterir.
+        await interaction.response.defer(ephemeral=True)
+        try:
+            from src.game.manager import game_manager
+            await game_manager.joker_at(interaction, self.masa_id, joker_turu="sahte")
+        except Exception as e:
+            await interaction.followup.send(f"❌ Beklenmeyen hata: {e}", ephemeral=True)
         self.stop()
 
     @discord.ui.button(label="⭐ Okey", style=discord.ButtonStyle.secondary)
@@ -245,6 +250,15 @@ class JokerSecimView(View):
         """Gerçek okey taşı (wildcard) — hangi taşın yerine kullandığını göstermek opsiyonel."""
         await interaction.response.send_modal(JokerKullanModal(self.masa_id, joker_turu="okey"))
         self.stop()
+
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item):
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(f"❌ Hata oluştu: {error}", ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ Hata oluştu: {error}", ephemeral=True)
+        except Exception:
+            pass
 
 
 # ─── Per seçim view'ı ────────────────────────────────────────────────────────
@@ -325,9 +339,9 @@ def build_masa_view(masa_id: str) -> View:
     async def joker_at_cb(i):
         if not await _izin(i): return
         await i.response.send_message(
-            "🃏 **Joker Ata** — Hangi taşı atmak istiyorsun?\n"
-            "• **🃏 Joker Ata** → Sahte joker taşını at (sayı & renk atayabilirsin)\n"
-            "• **⭐ Okey** → Renkli okey taşını at (sayı & renk atayabilirsin)",
+            "🃏 **Joker Taşı At** — Hangi joker taşını atmak istiyorsun?\n"
+            "• **🃏 Joker Ata** → Sahte okey taşını at *(kimliği sabittir, renk/sayı sorulmaz)*\n"
+            "• **⭐ Okey** → Gerçek okey taşını at *(wildcard, opsiyonel renk/sayı girilebilir)*",
             view=JokerSecimView(masa_id), ephemeral=True
         )
 

@@ -917,13 +917,19 @@ class GameManager:
         joker_turu='sahte'  → Sahte okey taşını at. Kimliği sabittir: her zaman okey_tas olarak atılır.
         joker_turu='okey'   → Gerçek okey taşını at. Wildcard; opsiyonel renk/sayı görsel alınabilir.
         """
+        async def _yanit(msg: str, ephemeral: bool = True):
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=ephemeral)
+            else:
+                await interaction.response.send_message(msg, ephemeral=ephemeral)
+
         masa = self.masalar.get(masa_id)
         if not masa:
-            await interaction.response.send_message("❌ Masa bulunamadı.", ephemeral=True); return
+            await _yanit("❌ Masa bulunamadı."); return
         if masa.durum != GameState.PLAYING:
-            await interaction.response.send_message("❌ Oyun başlamadı.", ephemeral=True); return
+            await _yanit("❌ Oyun başlamadı."); return
         if masa.siradaki_oyuncu_id() != interaction.user.id:
-            await interaction.response.send_message("❌ Sıra sizde değil!", ephemeral=True); return
+            await _yanit("❌ Sıra sizde değil!"); return
 
         if joker_turu == "okey":
             basarili, hata = masa.okey_tas_at(interaction.user.id, gorsel_renk, gorsel_sayi)
@@ -932,7 +938,11 @@ class GameManager:
             basarili, hata = masa.joker_at(interaction.user.id)
 
         if not basarili:
-            await interaction.response.send_message(f"❌ {hata}", ephemeral=True); return
+            if interaction.response.is_done():
+                await interaction.followup.send(f"❌ {hata}", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ {hata}", ephemeral=True)
+            return
 
         self._zaman_asimi_iptal(masa_id, interaction.user.id)
 
@@ -946,7 +956,6 @@ class GameManager:
                 channel = oy
 
         if joker_turu == "okey":
-            # Gerçek okey (wildcard) — opsiyonel görsel bilgisi
             if gorsel_renk and gorsel_sayi:
                 temsil = f"{COLOR_EMOJI.get(gorsel_renk,'')}{COLOR_NAMES.get(gorsel_renk,gorsel_renk)} {gorsel_sayi}"
                 at_mesaj = (
@@ -960,7 +969,6 @@ class GameManager:
                     f"🎴 Sıra: **{sonraki_ad}**"
                 )
         else:
-            # Sahte okey — kimlik sabittir: okey_tas
             okey_str = self._okey_str(masa)
             at_mesaj = (
                 f"🃏 **{interaction.user.display_name}** sahte okeyı attı! "
@@ -968,7 +976,12 @@ class GameManager:
                 f"🎴 Sıra: **{sonraki_ad}**"
             )
 
-        await interaction.response.send_message(at_mesaj)
+        # Eğer interaction önceden defer() edildiyse followup kullan, yoksa response kullan
+        if interaction.response.is_done():
+            await channel.send(at_mesaj)
+        else:
+            await interaction.response.send_message(at_mesaj)
+
         await self._mesaj_sayaci_artir(channel, masa_id)
         await self._bot_tur_kontrol(channel, masa_id)
 
