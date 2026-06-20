@@ -224,18 +224,25 @@ class JokerKullanModal(Modal, title="🃏 Joker Taşı — Hangi Taş Olarak Ata
 
 
 class JokerSecimView(View):
-    """Joker türünü seçmek için geçici buton paneli — 'Joker Ata' veya 'Okey'."""
+    """
+    Joker türünü seçmek için geçici buton paneli.
+    - 🃏 Joker Ata → Sahte okey taşı (kimliği sabittir: her zaman o elin okey taşı). Modal YOK.
+    - ⭐ Okey      → Gerçek okey taşı (wildcard). Opsiyonel renk/sayı girilebilir.
+    """
     def __init__(self, masa_id: str):
         super().__init__(timeout=60)
         self.masa_id = masa_id
 
     @discord.ui.button(label="🃏 Joker Ata", style=discord.ButtonStyle.primary)
     async def sahte_joker_at(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(JokerKullanModal(self.masa_id, joker_turu="sahte"))
+        """Sahte okeyı doğrudan at — kimlik sabit (okey_tas), renk/sayı sorulmaz."""
+        from src.game.manager import game_manager
+        await game_manager.joker_at(interaction, self.masa_id, joker_turu="sahte")
         self.stop()
 
     @discord.ui.button(label="⭐ Okey", style=discord.ButtonStyle.secondary)
     async def okey_tas_at(self, interaction: discord.Interaction, button: Button):
+        """Gerçek okey taşı (wildcard) — hangi taşın yerine kullandığını göstermek opsiyonel."""
         await interaction.response.send_modal(JokerKullanModal(self.masa_id, joker_turu="okey"))
         self.stop()
 

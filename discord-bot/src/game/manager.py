@@ -4,7 +4,7 @@ import uuid
 from typing import Optional
 from src.game.okey_engine import (
     OkeyGame, GameState, COLOR_EMOJI, COLOR_NAMES,
-    BONUS_NORMAL, BONUS_SAHTE_JOKER, BONUS_CIFTE_OKEY, BONUS_YEDI_CIFT
+    BONUS_NORMAL, BONUS_CIFTE_OKEY, BONUS_YEDI_CIFT
 )
 from src.economy.db import ensure_oyuncu, update_cip, mac_bitti, get_izin_roller, set_izin_roller
 from src.ui.render import render_el, render_son_tas
@@ -643,10 +643,15 @@ class GameManager:
         for i, t in enumerate(el):
             if t.okey:
                 emoji = "🃏"
-                label = t.display_label()
+                # Sahte okey = o elin okey taşının sabit kopyası (wildcard DEĞİL)
+                if masa.okey_tas:
+                    renk_ad = COLOR_NAMES.get(masa.okey_tas.renk, masa.okey_tas.renk)
+                    label = f"Sahte Okey (= {renk_ad} {masa.okey_tas.sayi})"
+                else:
+                    label = "Sahte Okey 🃏"
             elif masa.okey_tas and t.renk == masa.okey_tas.renk and t.sayi == masa.okey_tas.sayi:
                 emoji = COLOR_EMOJI.get(t.renk, "⬜")
-                label = f"{COLOR_NAMES.get(t.renk, t.renk)} {t.sayi} ⭐(Okey)"
+                label = f"{COLOR_NAMES.get(t.renk, t.renk)} {t.sayi} ⭐ (Gerçek Okey — Wildcard)"
             else:
                 emoji = COLOR_EMOJI.get(t.renk, "⬜")
                 label = f"{COLOR_NAMES.get(t.renk, t.renk)} {t.sayi}"
@@ -660,9 +665,16 @@ class GameManager:
                        and t.renk == masa.okey_tas.renk and t.sayi == masa.okey_tas.sayi
                        for t in el)
         if sahte_var:
-            joker_rehber += "\n🃏 **Sahte Joker**: *Joker Ata* → *Joker Ata* seçeneğiyle at (sayı atayabilirsin)"
+            okey_str = self._okey_str(masa)
+            joker_rehber += (
+                f"\n🃏 **Sahte Okey**: Sadece **{okey_str}** yerine kullanılabilir "
+                f"(wildcard DEĞİL). *Joker Ata → 🃏 Joker Ata* ile at."
+            )
         if okey_var:
-            joker_rehber += f"\n⭐ **Okey Taşı** ({self._okey_str(masa)}): *Joker Ata* → *Okey* seçeneğiyle at"
+            joker_rehber += (
+                f"\n⭐ **Gerçek Okey** ({self._okey_str(masa)}): Her taşın yerine wildcard. "
+                f"*Joker Ata → ⭐ Okey* ile at (opsiyonel renk/sayı belirtebilirsin)."
+            )
 
         embed = discord.Embed(
             title="🀄 Elinizdeki Taşlar",
@@ -867,10 +879,13 @@ class GameManager:
         kazandi, kazanma_turu = masa.okey_ac(interaction.user.id)
         if kazandi:
             tur_mesaj = {
-                "cifte_okey":  "🌟🌟 **ÇİFTE OKEY!** Sahte jokeri kullanmadan KAZANDIN! **+500 🪙** 🌟🌟",
-                "sahte_joker": "🃏🏆 **SAHTE JOKER ile OKEY!** +300 🪙 bonus kazandın!",
-                "yedi_cift":   "🎊🎊 **YEDİ ÇİFT! ÇİFTTEN BİTTİ!** Muhteşem bir el! **+350 🪙** 🎊🎊",
-                "normal":      "🎉🏆 **OKEY AÇILDI! TEBRİKLER!** +200 🪙",
+                "cifte_okey": (
+                    "🌟🌟 **ÇİFTE OKEY!** Sahte okeyı son taş olarak atarak KAZANDIN! **+500 🪙** 🌟🌟"
+                ),
+                "yedi_cift": (
+                    "🎊🎊 **YEDİ ÇİFT! ÇİFTTEN BİTTİ!** Muhteşem bir el! **+350 🪙** 🎊🎊"
+                ),
+                "normal": "🎉🏆 **OKEY AÇILDI! TEBRİKLER!** +200 🪙",
             }.get(kazanma_turu, "🎉 OKEY AÇILDI!")
 
             await interaction.response.send_message(
@@ -896,8 +911,12 @@ class GameManager:
 
     # ── Joker at ─────────────────────────────────────────────────────────────
     async def joker_at(self, interaction: discord.Interaction, masa_id: str,
-                       gorsel_renk: str = None, gorsel_sayi: int = None,
-                       joker_turu: str = "sahte"):
+                       joker_turu: str = "sahte",
+                       gorsel_renk: str = None, gorsel_sayi: int = None):
+        """
+        joker_turu='sahte'  → Sahte okey taşını at. Kimliği sabittir: her zaman okey_tas olarak atılır.
+        joker_turu='okey'   → Gerçek okey taşını at. Wildcard; opsiyonel renk/sayı görsel alınabilir.
+        """
         masa = self.masalar.get(masa_id)
         if not masa:
             await interaction.response.send_message("❌ Masa bulunamadı.", ephemeral=True); return
@@ -909,7 +928,8 @@ class GameManager:
         if joker_turu == "okey":
             basarili, hata = masa.okey_tas_at(interaction.user.id, gorsel_renk, gorsel_sayi)
         else:
-            basarili, hata = masa.joker_at(interaction.user.id, gorsel_renk, gorsel_sayi)
+            # Sahte okey: kimlik sabit (okey_tas), renk/sayı kullanıcıdan ALINMAZ
+            basarili, hata = masa.joker_at(interaction.user.id)
 
         if not basarili:
             await interaction.response.send_message(f"❌ {hata}", ephemeral=True); return
@@ -925,27 +945,28 @@ class GameManager:
             if oy:
                 channel = oy
 
-        if gorsel_renk and gorsel_sayi:
-            from src.game.okey_engine import COLOR_EMOJI, COLOR_NAMES
-            temsil = f"{COLOR_EMOJI.get(gorsel_renk,'')}{COLOR_NAMES.get(gorsel_renk,gorsel_renk)} {gorsel_sayi}"
-            tur_emoji = "⭐" if joker_turu == "okey" else "🃏"
-            tur_ad    = "okey" if joker_turu == "okey" else "joker"
-            at_mesaj = (
-                f"{tur_emoji} **{interaction.user.display_name}** "
-                f"**{tur_ad}** taşını **{temsil}** olarak attı!\n"
-                f"🎴 Sıra: **{sonraki_ad}**"
-            )
-        else:
-            if joker_turu == "okey":
+        if joker_turu == "okey":
+            # Gerçek okey (wildcard) — opsiyonel görsel bilgisi
+            if gorsel_renk and gorsel_sayi:
+                temsil = f"{COLOR_EMOJI.get(gorsel_renk,'')}{COLOR_NAMES.get(gorsel_renk,gorsel_renk)} {gorsel_sayi}"
                 at_mesaj = (
-                    f"⭐ **{interaction.user.display_name}** **okey taşını** attı!\n"
+                    f"⭐ **{interaction.user.display_name}** gerçek okey taşını "
+                    f"**{temsil}** yerine kullanarak attı!\n"
                     f"🎴 Sıra: **{sonraki_ad}**"
                 )
             else:
                 at_mesaj = (
-                    f"🃏 **{interaction.user.display_name}** **joker taşını** attı!\n"
+                    f"⭐ **{interaction.user.display_name}** gerçek okey taşını attı!\n"
                     f"🎴 Sıra: **{sonraki_ad}**"
                 )
+        else:
+            # Sahte okey — kimlik sabittir: okey_tas
+            okey_str = self._okey_str(masa)
+            at_mesaj = (
+                f"🃏 **{interaction.user.display_name}** sahte okeyı attı! "
+                f"*(= {okey_str} olarak)*\n"
+                f"🎴 Sıra: **{sonraki_ad}**"
+            )
 
         await interaction.response.send_message(at_mesaj)
         await self._mesaj_sayaci_artir(channel, masa_id)
@@ -972,8 +993,6 @@ class GameManager:
         if kazanan_id > 0:
             if kazanma_turu == "cifte_okey":
                 bonus_ekstra = BONUS_CIFTE_OKEY - BONUS_NORMAL
-            elif kazanma_turu == "sahte_joker":
-                bonus_ekstra = BONUS_SAHTE_JOKER - BONUS_NORMAL
             elif kazanma_turu == "yedi_cift":
                 bonus_ekstra = BONUS_YEDI_CIFT - BONUS_NORMAL
             if bonus_ekstra > 0:
@@ -981,7 +1000,6 @@ class GameManager:
 
         tur_ikonu = {
             "cifte_okey": "🌟",
-            "sahte_joker": "🃏",
             "yedi_cift": "🎊",
             "normal": "🏆"
         }.get(kazanma_turu, "🏆")
@@ -993,9 +1011,11 @@ class GameManager:
         )
 
         if kazanma_turu == "cifte_okey":
-            embed.add_field(name="🌟 Çifte Okey Bonusu!", value="Sahte jokeri kullanmadan kazandınız!", inline=False)
-        elif kazanma_turu == "sahte_joker":
-            embed.add_field(name="🃏 Sahte Joker Bonusu!", value="Sahte jokeri ustalıkla kullanarak kazandınız!", inline=False)
+            embed.add_field(
+                name="🌟 Çifte Okey Bonusu!",
+                value="Sahte okeyı son taş olarak atarak kazandınız! Ustalık gerektiren bir hamle!",
+                inline=False
+            )
         elif kazanma_turu == "yedi_cift":
             embed.add_field(name="🎊 Yedi Çift Bonusu!", value="7 çift yaparak çiftten bitirdiniz! Harika oyun!", inline=False)
 
