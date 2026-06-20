@@ -400,55 +400,186 @@ async def liderlik(interaction: discord.Interaction, kategori: str = "cip"):
     embed.description = "\n".join(satirlar) if satirlar else "Henüz kayıt yok."
     await interaction.response.send_message(embed=embed)
 
-@bot.tree.command(name="yardim", description="Okey botu komutları ve kurallar rehberi")
+@bot.tree.command(name="yardim", description="Okey botu komutları ve oyun kuralları rehberi")
 async def yardim(interaction: discord.Interaction):
-    embed = discord.Embed(
+    embeds = []
+
+    # ── 1. Komutlar ──────────────────────────────────────────────────────────
+    e1 = discord.Embed(
         title="📖 Kahvehane Okey — Yardım Rehberi",
-        description="Tüm komutlar ve oyun kuralları:",
+        description="Tüm komutlar ve tam oyun kuralları aşağıda:",
         color=0x3498db
     )
-    embed.add_field(
+    e1.add_field(
         name="🎮 Oyun Komutları",
         value=(
             "`/okey kur` — Özel masa aç\n"
             "`/okey katil` — Masaya katıl\n"
-            "`/okey hizli-mac` — Hızlı maça atıl\n"
+            "`/okey hizli-mac` — Hızlı maça atıl (bot dolu)\n"
             "`/okey izle` — Maç izle\n"
             "`/okey ayril` — Masadan ayrıl"
         ),
-        inline=False
+        inline=True
     )
-    embed.add_field(
-        name="💰 Ekonomi Komutları",
+    e1.add_field(
+        name="💰 Ekonomi & Sosyal",
         value=(
-            "`/cuzdan` — Çip & seviye bilgisi\n"
+            "`/cuzdan` — Çip & seviye\n"
             "`/gunluk` — Günlük 500 🪙 ödül\n"
-            "`/market` — Kozmetik market\n"
-            "`/gonder @kullanıcı miktar` — Çip transferi"
-        ),
-        inline=False
-    )
-    embed.add_field(
-        name="📊 Sosyal Komutlar",
-        value=(
+            "`/gonder @kişi miktar` — Çip gönder\n"
             "`/profil` — İstatistik kartı\n"
-            "`/liderlik` — Sıralama tablosu\n"
-            "`/yardim` — Bu menü"
+            "`/liderlik` — Sıralama tablosu"
         ),
+        inline=True
+    )
+
+    # ── 2. Temel Kurallar ────────────────────────────────────────────────────
+    e1.add_field(
+        name="━━━━━━━━━━━━━━━━━━━━━━━━",
+        value="** **",
         inline=False
     )
-    embed.add_field(
-        name="🎲 Okey Kuralları",
+    e1.add_field(
+        name="🎲 Temel Oyun Kuralları",
         value=(
-            "• **14 taş** ile başlarsınız, her turda **1 çek 1 at**\n"
-            "• Hedef: **3'lü veya 4'lü setler** oluşturmak\n"
-            "• **Okey taşı** joker görevi görür\n"
-            "• Elinizi tamamlayınca **OKEY AÇ!** butonuna basın"
+            "**Taş seti:** 106 taş — 4 renk × 13 sayı × 2 adet + 2 sahte okey\n"
+            "**Başlangıç:** İlk oyuncu **15 taş**, diğerleri **14 taş** alır\n"
+            "**Her tur:** Talon'dan veya son atılan taştan **1 çek**, ardından **1 at**\n"
+            "**İlk oyuncu:** Taş çekmeden doğrudan atar (15 taşı var)\n"
+            "**Amaç:** 14 taşı geçerli perlere dizerek **OKEY AÇ!** butonuna bas\n"
+            "**Süre:** Her tur için **5 dakika** — aşılırsa diskalifiye"
         ),
         inline=False
     )
-    embed.set_footer(text="İyi eğlenceler! | Sorunlar için sunucu yönetimine ulaşın.")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    # ── 3. Okey Taşı Belirleme ───────────────────────────────────────────────
+    e1.add_field(
+        name="🃏 Okey Taşı Nasıl Belirlenir?",
+        value=(
+            "Oyun başında bir **gösterge taşı** açılır.\n"
+            "Gösterge taşının **bir üstü** (aynı renk) o elin **okey taşıdır**.\n\n"
+            "**Örnek:** Gösterge = 🔴4 → Okey taşı = 🔴5\n"
+            "**Sarma:** Gösterge = 🔵13 → Okey taşı = 🔵1"
+        ),
+        inline=False
+    )
+    embeds.append(e1)
+
+    # ── 4. Joker Sistemi ─────────────────────────────────────────────────────
+    e2 = discord.Embed(
+        title="🃏 Joker Sistemi — Sahte Okey vs Gerçek Okey",
+        color=0xe67e22
+    )
+    e2.add_field(
+        name="⭐ Gerçek Okey Taşı (Fiziksel kart)",
+        value=(
+            "O elin okey taşı (ör: 🔴5) **gerçek wildcard'dır.**\n"
+            "• Her taşın yerine her perde kullanılabilir\n"
+            "• Atarken **⭐ Okey** butonunu kullan\n"
+            "• Opsiyonel olarak hangi taşın yerine kullandığını belirtebilirsin"
+        ),
+        inline=False
+    )
+    e2.add_field(
+        name="🃏 Sahte Okey (Üzerinde sayı/renk olmayan özel taş)",
+        value=(
+            "Sahte okey **wildcard DEĞİLDİR.**\n"
+            "Sahte okey, **her zaman o elin okey taşının kimliğini** taşır.\n\n"
+            "**Örnek:** Okey taşı 🔴5 ise →\n"
+            "• Sahte okey = 🔴5 olarak sayılır\n"
+            "• Sadece 🔴5'e ihtiyaç duyulan perlerde kullanılabilir\n"
+            "  *(🔴3 - 🔴4 - SahteOkey = 🔴3-🔴4-🔴5 ✅)*\n"
+            "• 🔴1 yerine kullanamazsın ❌\n\n"
+            "Atarken **🃏 Joker Ata** butonunu kullan — renk/sayı sorulmaz, otomatik atılır."
+        ),
+        inline=False
+    )
+    embeds.append(e2)
+
+    # ── 5. Geçerli Perler ────────────────────────────────────────────────────
+    e3 = discord.Embed(
+        title="📐 Geçerli Perler (Setler)",
+        color=0x2ecc71
+    )
+    e3.add_field(
+        name="🔗 Seri (Aynı Renk, Ardışık Sayı) — min 3 taş",
+        value=(
+            "🔴3 🔴4 🔴5 ✅\n"
+            "🟡7 🟡8 🟡9 🟡10 ✅\n"
+            "🔴3 🔴4 ⭐*(okey=🔴5)* ✅\n"
+            "🔴12 🔴13 🔴1 ✅  *(13→1 sarma)*"
+        ),
+        inline=True
+    )
+    e3.add_field(
+        name="🔀 Grup (Aynı Sayı, Farklı Renk) — min 3 taş",
+        value=(
+            "🔴7 🟡7 🔵7 ✅\n"
+            "🔴13 🟡13 🔵13 ⚫13 ✅\n"
+            "🔴5 🟡5 ⭐*(okey=🔵5)* ✅\n"
+            "🔴3 🔴3 ❌  *(aynı renk olamaz)*"
+        ),
+        inline=True
+    )
+    e3.add_field(
+        name="🎊 7 Çift (Özel Kazanma)",
+        value=(
+            "14 taşını **7 eşleşik çift** oluşturacak şekilde dizersen kazanırsın.\n"
+            "Gerçek okey taşı (wildcard) eksik çiftleri tamamlayabilir.\n"
+            "**Bonus: +350 🪙**"
+        ),
+        inline=False
+    )
+    embeds.append(e3)
+
+    # ── 6. Kazanma & Bonuslar ────────────────────────────────────────────────
+    e4 = discord.Embed(
+        title="🏆 Kazanma Yolları & Bonuslar",
+        color=0xf1c40f
+    )
+    e4.add_field(
+        name="Kazanma Koşulu",
+        value=(
+            "Sıra sende olduğunda **OKEY AÇ!** butonuna bas.\n"
+            "15 taşın varsa (çektikten sonra) sistem otomatik en iyi atılacak taşı bulur.\n"
+            "14 taşın geçerli perlere bölünebiliyorsa → **KAZANDIN!**"
+        ),
+        inline=False
+    )
+    e4.add_field(
+        name="🏆 Normal Kazanma",
+        value="+200 🪙",
+        inline=True
+    )
+    e4.add_field(
+        name="🌟 Çifte Okey",
+        value="Sahte okeyı **son taş** olarak atarak kazanma → +500 🪙",
+        inline=True
+    )
+    e4.add_field(
+        name="🎊 Yedi Çift",
+        value="7 eşleşik çiftle bitirme → +350 🪙",
+        inline=True
+    )
+    e4.add_field(
+        name="📱 Butonlar",
+        value=(
+            "**✅ Masaya Katıl** — Masaya gir\n"
+            "**🀄 Perleri Diz** — Eli per düzenine göre sırala (iki mod var)\n"
+            "**👁️ El Gör** — Taşlarını görsel olarak gör\n"
+            "**🎴 Talon'dan Çek** — Talon'dan taş çek\n"
+            "**♻️ Son Taşı Al** — Önceki oyuncunun attığı taşı al\n"
+            "**🗑️ Taş At** — Elinizden taş at (renk + sayı gir)\n"
+            "**🃏 Joker Ata** — Sahte okey veya gerçek okey taşını at\n"
+            "**🎉 OKEY AÇ!** — Okey aç ve kazandığını kontrol et\n"
+            "**🚪 Masadan Ayrıl** — Masadan çık"
+        ),
+        inline=False
+    )
+    e4.set_footer(text="İyi eğlenceler! | Sorun için sunucu yönetimine ulaşın.")
+    embeds.append(e4)
+
+    await interaction.response.send_message(embeds=embeds, ephemeral=True)
 
 # ─── HATA YÖNETİMİ ───────────────────────────────────────────────────────────
 
