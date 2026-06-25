@@ -30,23 +30,10 @@ class OkeyBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ {self.user} olarak giriş yapıldı!")
-
-        # 1. Mevcut komutları kaydet
-        kayitli_komutlar = list(self.tree.get_commands())
-
-        # 2. Global komutları Discord'dan temizle (çift görünmeyi önler)
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync()
-
-        # 3. Komutları ağaca geri yükle
-        for cmd in kayitli_komutlar:
-            self.tree.add_command(cmd, override=True)
-
-        # 4. Sadece sunucuya özel sync (anında aktif olur)
         for guild in self.guilds:
             self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-
+            synced = await self.tree.sync(guild=guild)
+            print(f"  ✔ {guild.name}: {len(synced)} komut sync edildi.")
         print("✅ Slash komutları senkronize edildi.")
         await self.change_presence(
             activity=discord.Activity(
