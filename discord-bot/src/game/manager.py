@@ -1102,6 +1102,13 @@ class GameManager:
             masa.oyuncu_cikar(user_id)
             gercek = len([u for u in masa.oyuncular if u > 0])
             if gercek == 0:
+                # Masa panelini sil
+                if masa.mesaj_id:
+                    try:
+                        msg = await interaction.channel.fetch_message(masa.mesaj_id)
+                        await msg.delete()
+                    except Exception:
+                        pass
                 self.masalar.pop(masa_id, None)
                 await interaction.response.send_message("🚪 Masadan ayrıldınız. Masa kapatıldı.", ephemeral=True)
             else:

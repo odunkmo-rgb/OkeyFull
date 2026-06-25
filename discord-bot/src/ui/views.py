@@ -124,7 +124,7 @@ class VIPMasaModal(Modal, title="💰 VIP Masa — Bahis Belirle"):
         await game_manager.masa_kur(interaction, max_oyuncu=4, bot_modu=False, bahis=miktar)
 
 
-class TasAtModal(Modal, title="🗑️ Hangi Taşı Atacaksınız?"):
+class TasAtModal(Modal, title="🗑️ Hangi Taşı Atacaksınız? (Taş Ata)"):
     def __init__(self, masa_id: str):
         super().__init__()
         self.masa_id = masa_id
@@ -236,13 +236,8 @@ class JokerSecimView(View):
     @discord.ui.button(label="🃏 Joker Ata", style=discord.ButtonStyle.primary)
     async def sahte_joker_at(self, interaction: discord.Interaction, button: Button):
         """Sahte okeyı doğrudan at — kimlik sabit (okey_tas), renk/sayı sorulmaz."""
-        # defer() hemen çağrılır: interaction 3 sn içinde yanıt görmezse "failed" gösterir.
-        await interaction.response.defer(ephemeral=True)
-        try:
-            from src.game.manager import game_manager
-            await game_manager.joker_at(interaction, self.masa_id, joker_turu="sahte")
-        except Exception as e:
-            await interaction.followup.send(f"❌ Beklenmeyen hata: {e}", ephemeral=True)
+        from src.game.manager import game_manager
+        await game_manager.joker_at(interaction, self.masa_id, joker_turu="sahte")
         self.stop()
 
     @discord.ui.button(label="⭐ Okey", style=discord.ButtonStyle.secondary)
@@ -368,7 +363,7 @@ def build_masa_view(masa_id: str) -> View:
         # row 1
         Button(label="Talon'dan Çek",      style=discord.ButtonStyle.primary,   emoji="🎴", custom_id=f"talon_{masa_id}",    row=1),
         Button(label="Son Taşı Al",        style=discord.ButtonStyle.secondary, emoji="♻️", custom_id=f"son_{masa_id}",      row=1),
-        Button(label="Taş At",             style=discord.ButtonStyle.danger,    emoji="🗑️", custom_id=f"at_{masa_id}",       row=1),
+        Button(label="Taş Ata",             style=discord.ButtonStyle.danger,    emoji="🗑️", custom_id=f"at_{masa_id}",       row=1),
         Button(label="Joker Ata 🃏",        style=discord.ButtonStyle.secondary, emoji="✨", custom_id=f"jokerat_{masa_id}",  row=1),
         # row 2
         Button(label="OKEY AÇ! 🏆",       style=discord.ButtonStyle.success,   emoji="🎉", custom_id=f"okey_{masa_id}",     row=2),
