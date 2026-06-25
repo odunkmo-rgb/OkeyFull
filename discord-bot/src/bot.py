@@ -30,10 +30,6 @@ class OkeyBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ {self.user} olarak giriş yapıldı!")
-        # Eski global komutları temizle (önceki administrator=True kayıtları)
-        self.tree.clear_commands(guild=None)
-        await self.tree.sync()
-        # Sunucuya özel anlık sync
         for guild in self.guilds:
             self.tree.copy_global_to(guild=guild)
             await self.tree.sync(guild=guild)
