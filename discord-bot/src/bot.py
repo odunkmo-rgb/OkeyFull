@@ -309,23 +309,33 @@ async def gonder(interaction: discord.Interaction, kullanici: discord.Member, mi
     else:
         await interaction.response.send_message(f"❌ {hata}", ephemeral=True)
 
-@bot.tree.command(name="market", description="Kozmetik ürünler marketi")
+@bot.tree.command(name="market", description="Oyun içi efekt ve güç marketi")
 async def market(interaction: discord.Interaction):
+    from src.ui.market_views import MarketView, market_ana_embed
+    await ensure_oyuncu(interaction.user.id, interaction.user.display_name)
+    await interaction.response.send_message(embed=market_ana_embed(), view=MarketView(), ephemeral=True)
+
+@bot.tree.command(name="envanter", description="Sahip olduğun market ürünlerini gör")
+async def envanter(interaction: discord.Interaction):
+    from src.economy.db import envanter_getir, MARKET_URUNLER
+    await ensure_oyuncu(interaction.user.id, interaction.user.display_name)
+    items = await envanter_getir(interaction.user.id)
     embed = discord.Embed(
-        title="🛍️ Kahvehane Okey Marketi",
-        description="Çiplerini harca, masanı özelleştir!",
-        color=0xe67e22
+        title="🎒 Envanterim",
+        color=0x9b59b6
     )
-    urunler = [
-        ("🟩 Yeşil Masa Örtüsü", "Varsayılan", "Ücretsiz"),
-        ("⬛ VIP Siyah Masa", "Prestige", "2,000 🪙"),
-        ("🟥 Kırmızı Masa", "Ateşli", "1,500 🪙"),
-        ("🎴 Altın Taş Seti", "Parlak taşlar", "5,000 🪙"),
-        ("🌟 Altın Çerçeve", "Profil süsü", "3,000 🪙"),
-    ]
-    for ad, aciklama, fiyat in urunler:
-        embed.add_field(name=f"{ad} — {fiyat}", value=aciklama, inline=False)
-    embed.set_footer(text="Market yakında tam işlevli olacak! 🚀")
+    if not items:
+        embed.description = "Envanterinde hiç ürün yok. `/market` ile alışveriş yap!"
+    else:
+        for item in items:
+            urun = MARKET_URUNLER.get(item["urun_adi"], {})
+            ad  = urun.get("ad", item["urun_adi"])
+            emo = urun.get("emoji", "🔹")
+            extra = ""
+            if item["urun_adi"] == "cayci_huseyin":
+                kalan = 3 - item.get("el_sayaci", 0)
+                extra = f" *(Sonraki videoya {kalan} el kaldı)*"
+            embed.add_field(name=f"{emo} {ad}", value=urun.get("aciklama", "") + extra, inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ─── SOSYAL KOMUTLAR ─────────────────────────────────────────────────────────

@@ -9,6 +9,30 @@ GUNLUK_ODUL    = 500
 KAZANMA_ODUL   = 200
 KAYBETME_CEZA  = 50
 
+MARKET_URUNLER = {
+    "cayci_huseyin": {
+        "ad":       "Çaycı Hüseyin Efekti",
+        "emoji":    "☕",
+        "fiyat":    200,
+        "aciklama": "Her 3 elde bir çay videosu! Masadaki herkesi güldür.",
+        "tur":      "sürekli",
+    },
+    "x2_katlay": {
+        "ad":       "X2 Katlayıcı Kartı",
+        "emoji":    "✖️",
+        "fiyat":    300,
+        "aciklama": "Bir sonraki kazanımını 2×'e katlar. (Tek kullanımlık)",
+        "tur":      "tek_kullanim",
+    },
+    "cifte_sigorta": {
+        "ad":       "Çifte Gitme Sigortası",
+        "emoji":    "🛡️",
+        "fiyat":    250,
+        "aciklama": "Çifte gittiğinde ceza puanını yarıya indirir. (Tek kullanımlık)",
+        "tur":      "tek_kullanim",
+    },
+}
+
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
@@ -45,6 +69,15 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS okey_ayarlar (
                 guild_id    INTEGER PRIMARY KEY,
                 rol_idleri  TEXT DEFAULT '[]'
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS market_envanter (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id     INTEGER NOT NULL,
+                urun_adi    TEXT NOT NULL,
+                aktif_mi    INTEGER DEFAULT 1,
+                el_sayaci   INTEGER DEFAULT 0
             )
         """)
         await db.commit()
@@ -184,6 +217,87 @@ async def vip_mac_oyna(user_id: int, bahis: int) -> tuple[str, int, int]:
             """, (bahis, user_id))
             await db.commit()
             return "kaybet", -bahis, max(0, cip - bahis)
+
+
+# ── Market fonksiyonları ─────────────────────────────────────────────────────
+
+async def market_satin_al(user_id: int, urun_adi: str) -> tuple[bool, str]:
+    """Ürünü satın al: bakiye düş, envantere ekle."""
+    urun = MARKET_URUNLER.get(urun_adi)
+    if not urun:
+        return False, "Geçersiz ürün."
+    fiyat = urun["fiyat"]
+    oyuncu = await get_oyuncu(user_id)
+    if not oyuncu:
+        return False, "Hesap bulunamadı."
+    if oyuncu.get("cip", 0) < fiyat:
+        return False, f"Yeterli çipiniz yok. Mevcut: **{oyuncu.get('cip', 0):,}** 🪙"
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE oyuncular SET cip = cip - ? WHERE user_id = ?", (fiyat, user_id)
+        )
+        await db.execute(
+            "INSERT INTO market_envanter (user_id, urun_adi, aktif_mi, el_sayaci) VALUES (?, ?, 1, 0)",
+            (user_id, urun_adi)
+        )
+        await db.commit()
+    return True, ""
+
+async def envanter_getir(user_id: int) -> list[dict]:
+    """Oyuncunun aktif envanterini döndür."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM market_envanter WHERE user_id = ? AND aktif_mi = 1 ORDER BY id",
+            (user_id,)
+        ) as cur:
+            return [dict(r) for r in await cur.fetchall()]
+
+async def urun_kontrol(user_id: int, urun_adi: str) -> dict | None:
+    """Oyuncunun envanterinde aktif ürün var mı?"""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM market_envanter WHERE user_id = ? AND urun_adi = ? AND aktif_mi = 1 LIMIT 1",
+            (user_id, urun_adi)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+async def urun_deaktive(user_id: int, urun_adi: str):
+    """Tek kullanımlık ürünü kullanıldı olarak işaretle."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE market_envanter SET aktif_mi = 0 WHERE user_id = ? AND urun_adi = ? AND aktif_mi = 1",
+            (user_id, urun_adi)
+        )
+        await db.commit()
+
+async def cayci_el_sayaci_artir(user_ids: list[int]) -> list[int]:
+    """
+    Masadaki Çaycı Hüseyin sahiplerinin el sayacını 1 artır.
+    Sayacı 3'e ulaşanların user_id listesini döndür ve o kayıtları sıfırla.
+    """
+    if not user_ids:
+        return []
+    video_gonder_ids = []
+    async with aiosqlite.connect(DB_PATH) as db:
+        for uid in user_ids:
+            async with db.execute(
+                "SELECT id, el_sayaci FROM market_envanter WHERE user_id = ? AND urun_adi = 'cayci_huseyin' AND aktif_mi = 1",
+                (uid,)
+            ) as cur:
+                rows = await cur.fetchall()
+            for row in rows:
+                rid, sayac = row[0], row[1]
+                yeni = sayac + 1
+                if yeni >= 3:
+                    video_gonder_ids.append(uid)
+                    await db.execute("UPDATE market_envanter SET el_sayaci = 0 WHERE id = ?", (rid,))
+                else:
+                    await db.execute("UPDATE market_envanter SET el_sayaci = ? WHERE id = ?", (yeni, rid))
+        await db.commit()
+    return list(set(video_gonder_ids))
 
 
 # ── Okey ayarları (izin rolleri) ─────────────────────────────────────────────

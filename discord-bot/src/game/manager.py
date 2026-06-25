@@ -6,7 +6,11 @@ from src.game.okey_engine import (
     OkeyGame, GameState, COLOR_EMOJI, COLOR_NAMES,
     BONUS_NORMAL, BONUS_CIFTE_OKEY, BONUS_YEDI_CIFT
 )
-from src.economy.db import ensure_oyuncu, update_cip, mac_bitti, get_izin_roller, set_izin_roller
+from src.economy.db import (
+    ensure_oyuncu, update_cip, mac_bitti, get_izin_roller, set_izin_roller,
+    urun_kontrol, urun_deaktive, cayci_el_sayaci_artir,
+    KAZANMA_ODUL, KAYBETME_CEZA
+)
 from src.ui.render import render_el, render_son_tas
 
 IZLEYICI_ROL_ID  = 1513129008554971256
@@ -1037,6 +1041,33 @@ class GameManager:
             if bonus_ekstra > 0:
                 await update_cip(kazanan_id, bonus_ekstra)
 
+        # ── Market efektleri ──────────────────────────────────────────────────
+        market_notlar = []  # Embed'e ek notlar
+
+        # X2 Katlayıcı: kazanana temel ödülünü bir daha ver
+        if kazanan_id > 0:
+            x2 = await urun_kontrol(kazanan_id, "x2_katlay")
+            if x2:
+                temel = KAZANMA_ODUL + (masa.bahis * max(0, len(gercek) - 1))
+                await update_cip(kazanan_id, temel)
+                await urun_deaktive(kazanan_id, "x2_katlay")
+                market_notlar.append(f"✖️ **X2 Katlayıcı** aktif! +{temel:,} 🪙 ek ödül.")
+
+        # Çifte Gitme Sigortası: her kaybeden için cezanın yarısını iade et
+        for uid in gercek:
+            if uid == kazanan_id:
+                continue
+            sigorta = await urun_kontrol(uid, "cifte_sigorta")
+            if sigorta:
+                iade = (KAYBETME_CEZA + masa.bahis) // 2
+                await update_cip(uid, iade)
+                await urun_deaktive(uid, "cifte_sigorta")
+                ad = masa.oyuncu_adlari.get(uid, "Oyuncu")
+                market_notlar.append(f"🛡️ **{ad}** sigorta ile yarı ceza ödedi (+{iade:,} 🪙 iade).")
+
+        # Çaycı Hüseyin: el sayacını artır, 3'e ulaşanlar için video gönder
+        cayci_video_ids = await cayci_el_sayaci_artir(gercek)
+
         tur_ikonu = {
             "cifte_okey": "🌟",
             "yedi_cift": "🎊",
@@ -1071,10 +1102,21 @@ class GameManager:
         )
         if oyuncu_str:
             embed.add_field(name="👥 Oyuncular", value=oyuncu_str, inline=False)
+        if market_notlar:
+            embed.add_field(name="🎁 Market Efektleri", value="\n".join(market_notlar), inline=False)
         embed.set_footer(text=f"Masa #{masa_id} • Kanal 2 dakika sonra silinecek.")
 
         if channel:
             await channel.send(embed=embed)
+
+        # Çaycı Hüseyin: video gönder (varsa)
+        if cayci_video_ids and channel:
+            from src.ui.market_views import cayci_video_gonder
+            adlar = {uid: masa.oyuncu_adlari.get(uid, "Oyuncu") for uid in cayci_video_ids}
+            try:
+                await cayci_video_gonder(channel, adlar)
+            except Exception:
+                pass
 
         # Oyun panelini hemen sil (butonlu panel)
         if masa.panel_mesaj_id and channel:
