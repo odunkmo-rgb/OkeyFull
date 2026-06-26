@@ -646,6 +646,7 @@ class GameManager:
             if atilan is not None:
                 if channel:
                     await channel.send(f"🤖 **{bot_ad}** `{str(atilan)}` attı.")
+                await self._cayci_kontrol(channel, masa_id)
             else:
                 # Bot taş atamadı — talon + cop_yigi boşsa oyun bitti
                 masa = self.masalar.get(masa_id)
@@ -896,6 +897,7 @@ class GameManager:
             f"🎴 Sıra: **{sonraki_ad}**"
         )
         await self._mesaj_sayaci_artir(channel, masa_id)
+        await self._cayci_kontrol(channel, masa_id)
         await self._bot_tur_kontrol(channel, masa_id)
 
     # ── Okey aç ─────────────────────────────────────────────────────────────
@@ -1010,7 +1012,22 @@ class GameManager:
         await interaction.response.send_message(at_mesaj)
 
         await self._mesaj_sayaci_artir(channel, masa_id)
+        await self._cayci_kontrol(channel, masa_id)
         await self._bot_tur_kontrol(channel, masa_id)
+
+    # ── Çaycı kontrol ────────────────────────────────────────────────────────
+    async def _cayci_kontrol(self, channel, masa_id: str):
+        """Her 3 turda bir çaycı videosu gönder (oyun sırasında)."""
+        masa = self.masalar.get(masa_id)
+        if not masa or not channel:
+            return
+        if masa.tur_sayaci > 0 and masa.tur_sayaci % 3 == 0:
+            from src.ui.market_views import cayci_video_gonder
+            print(f"[CAYCI] {masa.tur_sayaci}. turda video tetiklendi!")
+            try:
+                await cayci_video_gonder(channel, {})
+            except Exception as e:
+                print(f"[CAYCI] Video gönderilemedi: {e}")
 
     # ── Oyun bitti ──────────────────────────────────────────────────────────
     async def _oyun_bitti(self, channel, masa_id: str, kazanan_id: int,
@@ -1063,16 +1080,8 @@ class GameManager:
                 ad = masa.oyuncu_adlari.get(uid, "Oyuncu")
                 market_notlar.append(f"🛡️ **{ad}** sigorta ile yarı ceza ödedi (+{iade:,} 🪙 iade).")
 
-        # Çaycı Hüseyin: el sayacını artır, 3'e ulaşanlar için video gönder
+        # Çaycı Hüseyin item sahiplerinin el sayacını artır
         cayci_video_ids = await cayci_el_sayaci_artir(gercek)
-
-        # Her 3 elde bir çaycı videosu (bot veya gerçek oyuncu farketmez)
-        self.el_sayaci += 1
-        print(f"[CAYCI] El sayacı: {self.el_sayaci}/3")
-        video_tetik = self.el_sayaci >= 3
-        if video_tetik:
-            self.el_sayaci = 0
-            print("[CAYCI] Video tetiklendi!")
 
         tur_ikonu = {
             "cifte_okey": "🌟",
@@ -1115,15 +1124,14 @@ class GameManager:
         if channel:
             await channel.send(embed=embed)
 
-        # Çaycı Hüseyin: video gönder (varsa) — oyun kanalına gönder
-        if (cayci_video_ids or video_tetik) and channel:
+        # Çaycı Hüseyin item sahipleri için video gönder (varsa)
+        if cayci_video_ids and channel:
             from src.ui.market_views import cayci_video_gonder
             adlar = {uid: masa.oyuncu_adlari.get(uid, "Oyuncu") for uid in cayci_video_ids}
             try:
                 await cayci_video_gonder(channel, adlar)
-                print(f"[CAYCI] Video gönderildi → kanal={channel.id}")
             except Exception as e:
-                print(f"[CAYCI] Video gönderilemedi: {e}")
+                print(f"[CAYCI] Item video gönderilemedi: {e}")
 
         # Oyun panelini hemen sil (butonlu panel)
         if masa.panel_mesaj_id and channel:

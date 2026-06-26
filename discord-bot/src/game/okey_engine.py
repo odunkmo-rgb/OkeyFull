@@ -317,6 +317,7 @@ class OkeyGame:
     mesaj_sayaci:    int                = 0
     bot_modu:        object             = False
     diskalifiye:     set[int]           = field(default_factory=set)
+    tur_sayaci:      int                = 0  # Her tur bitişinde artar, video tetiklemek için
 
     def oyuncu_ekle(self, user_id: int, ad: str) -> bool:
         if user_id in self.oyuncular:
@@ -377,6 +378,7 @@ class OkeyGame:
     def _tur_bitir(self, user_id: int):
         self.el_cekti[user_id] = False
         self.siradaki_oyuncu   = (self.siradaki_oyuncu + 1) % len(self.oyuncular)
+        self.tur_sayaci        += 1
 
     def talon_cek(self, user_id: int) -> Optional[Tas]:
         if not self.talon:                            return None
