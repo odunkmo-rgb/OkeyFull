@@ -27,7 +27,7 @@ class GameManager:
         self.masalar: dict[str, OkeyGame] = {}
         self.timeout_tasks: dict[str, asyncio.Task] = {}
         self.izin_roller: dict[int, list[int]] = {}
-        self.bot_el_sayaci: int = 0  # Bot içeren maçlarda tamamlanan el sayısı
+        self.el_sayaci: int = 0  # Tüm maçlarda tamamlanan el sayısı (video için)
 
     async def yukle_izin_roller(self, guild_id: int):
         self.izin_roller[guild_id] = await get_izin_roller(guild_id)
@@ -1065,15 +1065,13 @@ class GameManager:
         # Çaycı Hüseyin: el sayacını artır, 3'e ulaşanlar için video gönder
         cayci_video_ids = await cayci_el_sayaci_artir(gercek)
 
-        # Bot içeren maçlarda her 3 elde bir ek video
-        bot_video_tetik = False
-        if masa.bot_oyuncular:
-            self.bot_el_sayaci += 1
-            print(f"[CAYCI] Bot el sayacı: {self.bot_el_sayaci}/3")
-            if self.bot_el_sayaci >= 3:
-                self.bot_el_sayaci = 0
-                bot_video_tetik = True
-                print("[CAYCI] Bot video tetiklendi!")
+        # Her 3 elde bir çaycı videosu (bot veya gerçek oyuncu farketmez)
+        self.el_sayaci += 1
+        print(f"[CAYCI] El sayacı: {self.el_sayaci}/3")
+        video_tetik = self.el_sayaci >= 3
+        if video_tetik:
+            self.el_sayaci = 0
+            print("[CAYCI] Video tetiklendi!")
 
         tur_ikonu = {
             "cifte_okey": "🌟",
@@ -1117,7 +1115,7 @@ class GameManager:
             await channel.send(embed=embed)
 
         # Çaycı Hüseyin: video gönder (varsa)
-        if (cayci_video_ids or bot_video_tetik) and channel:
+        if (cayci_video_ids or video_tetik) and channel:
             from src.ui.market_views import cayci_video_gonder
             adlar = {uid: masa.oyuncu_adlari.get(uid, "Oyuncu") for uid in cayci_video_ids}
             try:
