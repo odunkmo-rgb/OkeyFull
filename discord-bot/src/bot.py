@@ -193,7 +193,7 @@ bot.tree.add_command(okey_group)
     roller="İzin verilecek rol ID'leri — boşlukla ayır. Boş bırakılırsa herkes erişebilir."
 )
 async def okey_rol(interaction: discord.Interaction, roller: str = ""):
-    if interaction.user.id != 1513128919182606378:
+    if not is_admin(interaction):
         await interaction.response.send_message(
             "❌ Bu komutu sadece bot yöneticisi kullanabilir.", ephemeral=True
         )
