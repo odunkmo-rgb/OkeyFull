@@ -337,7 +337,8 @@ def build_masa_view(masa_id: str) -> View:
 
     async def joker_at_cb(i):
         if not await _izin(i): return
-        await i.response.send_modal(JokerKullanModal(masa_id, joker_turu="sahte"))
+        from src.game.manager import game_manager
+        await game_manager.joker_at(i, masa_id, joker_turu="sahte")
 
     async def okey_ata_cb(i):
         if not await _izin(i): return
