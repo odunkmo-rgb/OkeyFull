@@ -1069,9 +1069,11 @@ class GameManager:
         bot_video_tetik = False
         if masa.bot_oyuncular:
             self.bot_el_sayaci += 1
+            print(f"[CAYCI] Bot el sayacı: {self.bot_el_sayaci}/3")
             if self.bot_el_sayaci >= 3:
                 self.bot_el_sayaci = 0
                 bot_video_tetik = True
+                print("[CAYCI] Bot video tetiklendi!")
 
         tur_ikonu = {
             "cifte_okey": "🌟",
@@ -1120,8 +1122,8 @@ class GameManager:
             adlar = {uid: masa.oyuncu_adlari.get(uid, "Oyuncu") for uid in cayci_video_ids}
             try:
                 await cayci_video_gonder(channel, adlar)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[CAYCI] Video gönderilemedi: {e}")
 
         # Oyun panelini hemen sil (butonlu panel)
         if masa.panel_mesaj_id and channel:
