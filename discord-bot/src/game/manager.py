@@ -1019,6 +1019,7 @@ class GameManager:
         if not masa:
             return
         masa.durum = GameState.FINISHED
+        print(f"[OYUN] _oyun_bitti çağrıldı — masa={masa_id}, kazanan={kazanan_id}")
 
         for uid in list(masa.oyuncular):
             self._zaman_asimi_iptal(masa_id, uid)
@@ -1114,14 +1115,25 @@ class GameManager:
         if channel:
             await channel.send(embed=embed)
 
-        # Çaycı Hüseyin: video gönder (varsa)
-        if (cayci_video_ids or video_tetik) and channel:
+        # Çaycı Hüseyin: video gönder (varsa) — lobi kanalına gönder ki oyun kanalı silinse de görünsün
+        if cayci_video_ids or video_tetik:
             from src.ui.market_views import cayci_video_gonder
             adlar = {uid: masa.oyuncu_adlari.get(uid, "Oyuncu") for uid in cayci_video_ids}
-            try:
-                await cayci_video_gonder(channel, adlar)
-            except Exception as e:
-                print(f"[CAYCI] Video gönderilemedi: {e}")
+            # Önce lobi kanalını bul, yoksa oyun kanalına gönder
+            video_kanal = None
+            if guild and masa.lobi_kanal_id:
+                try:
+                    video_kanal = guild.get_channel(masa.lobi_kanal_id) or await guild.fetch_channel(masa.lobi_kanal_id)
+                except Exception:
+                    pass
+            if video_kanal is None:
+                video_kanal = channel
+            if video_kanal:
+                try:
+                    await cayci_video_gonder(video_kanal, adlar)
+                    print(f"[CAYCI] Video gönderildi → kanal={video_kanal.id}")
+                except Exception as e:
+                    print(f"[CAYCI] Video gönderilemedi: {e}")
 
         # Oyun panelini hemen sil (butonlu panel)
         if masa.panel_mesaj_id and channel:
