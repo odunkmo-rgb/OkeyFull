@@ -5,15 +5,35 @@ from src.economy.db import (
     MARKET_URUNLER, market_satin_al, envanter_getir, urun_kontrol
 )
 
+def _video_yolu_bul(dosya_adi: str) -> str:
+    """Farklı deploy ortamlarında (Replit, Railway, vs.) video dosyasını bulur."""
+    # 1. Bu dosyaya göre relative path (attached_assets/ proje kökünde)
+    ui_dir = os.path.dirname(os.path.abspath(__file__))
+    adaylar = [
+        os.path.join(ui_dir, "../../../attached_assets", dosya_adi),  # Replit / Railway
+        os.path.join(ui_dir, "../../attached_assets", dosya_adi),
+        os.path.join(ui_dir, "../attached_assets", dosya_adi),
+        os.path.join(os.getcwd(), "attached_assets", dosya_adi),
+        os.path.join(os.getcwd(), "../attached_assets", dosya_adi),
+    ]
+    for aday in adaylar:
+        normalized = os.path.normpath(aday)
+        if os.path.exists(normalized):
+            return normalized
+    # Son çare: orijinal Türkçe isimli dosya
+    return os.path.normpath(adaylar[0])
+
 VIDEO_DOSYALARI = [
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../attached_assets/Çaycı_Hüseyin_çaylarrrr(360P)_1782411092153.mp4")),
-    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../attached_assets/Çocuklar_Duymasın_(Çaylarrr)_Kral_Geri_Döndü(720P_HD)_1782411092227.mp4")),
+    _video_yolu_bul("cayci_huseyin_1.mp4"),
+    _video_yolu_bul("cayci_huseyin_2.mp4"),
 ]
 
 # Başlangıçta path'leri doğrula
 for _v in VIDEO_DOSYALARI:
     if not os.path.exists(_v):
         print(f"[UYARI] Video dosyası bulunamadı: {_v}")
+    else:
+        print(f"[OK] Video bulundu: {_v}")
 
 
 def market_ana_embed() -> discord.Embed:
