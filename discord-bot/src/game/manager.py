@@ -1,5 +1,6 @@
 import discord
 import asyncio
+import random
 import uuid
 from typing import Optional
 from src.game.okey_engine import (
@@ -8,19 +9,23 @@ from src.game.okey_engine import (
 )
 from src.economy.db import (
     ensure_oyuncu, update_cip, mac_bitti, get_izin_roller, set_izin_roller,
-    urun_kontrol, urun_deaktive, cayci_el_sayaci_artir,
-    KAZANMA_ODUL, KAYBETME_CEZA
+    urun_kontrol, urun_deaktive, cayci_el_sayaci_artir, get_liderlik,
+    ayrilma_cezasi_uygula, ayrilma_yasagi_kontrol,
+    KAZANMA_ODUL, KAYBETME_CEZA, AYRILMA_CEZASI, AYRILMA_YASAK_DK
 )
 from src.ui.render import render_el, render_son_tas
 
 IZLEYICI_ROL_ID  = 1513129008554971256
 ADMIN_USER_ID    = 1513128919182606378
+KRAL_ROL_ID      = 1523034067522687037   # Kahvehanenin Ağası — en çok kazanan
+BORCLU_ROL_ID    = 1523034300755480718   # Çaycı Çırağı — en çok kaybeden
 KARISIK_BEKLEME  = 30
 BOT_SAYAC        = 10
 ZAMAN_ASIMI_SN   = 5 * 60
 UYARI_KALA_SN    = 60
 SONUC_BEKLEME_SN = 120
 LOBI_MESAJ_SURE  = 120   # Lobi "oyun başladı" mesajı 2 dakika sonra silinir
+YERINE_GECEN_BOT_ADLARI = ["🤖 Bot Ahmet", "🤖 Bot Mehmet", "🤖 Bot Ayşe", "🤖 Bot Fatma", "🤖 Bot Veli", "🤖 Bot Zeynep"]
 
 class GameManager:
     def __init__(self):
@@ -73,6 +78,30 @@ class GameManager:
 
     def _timeout_key(self, masa_id: str, user_id: int) -> str:
         return f"{masa_id}_{user_id}"
+
+    # ── Bot ile yer değiştirme ───────────────────────────────────────────────
+    def _yeni_bot_id(self, masa: OkeyGame) -> int:
+        kullanilan = set(masa.oyuncular) | set(masa.bot_oyuncular)
+        yeni = -100
+        while yeni in kullanilan:
+            yeni -= 1
+        return yeni
+
+    def _bot_yerine_koy(self, masa: OkeyGame, eski_user_id: int) -> tuple[int, str]:
+        """Ayrılan/diskalifiye edilen oyuncunun YERİNE (aynı slotta) bot koyar.
+        Elini devralır — böylece sıra indeksleri kaymaz, oyun kaldığı yerden devam eder."""
+        idx = masa.oyuncular.index(eski_user_id)
+        bot_id = self._yeni_bot_id(masa)
+        bot_ad = random.choice(YERINE_GECEN_BOT_ADLARI)
+
+        masa.oyuncular[idx] = bot_id
+        masa.oyuncu_adlari[bot_id] = bot_ad
+        masa.oyuncu_adlari.pop(eski_user_id, None)
+        masa.bot_oyuncular.add(bot_id)
+        if eski_user_id in masa.oyuncu_elleri:
+            masa.oyuncu_elleri[bot_id] = masa.oyuncu_elleri.pop(eski_user_id)
+        masa.el_cekti[bot_id] = masa.el_cekti.pop(eski_user_id, False)
+        return bot_id, bot_ad
 
     # ── Zaman aşımı sistemi ──────────────────────────────────────────────────
     def _zaman_asimi_iptal(self, masa_id: str, user_id: int):
@@ -127,18 +156,9 @@ class GameManager:
         ad = masa.oyuncu_adlari.get(user_id, "Oyuncu")
         masa.diskalifiye.add(user_id)
 
-        if user_id in masa.oyuncu_elleri:
-            masa.talon.extend(masa.oyuncu_elleri.pop(user_id))
-            import random
-            random.shuffle(masa.talon)
-
+        bot_id, bot_ad = None, None
         if user_id in masa.oyuncular:
-            idx = masa.oyuncular.index(user_id)
-            masa.oyuncular.remove(user_id)
-            if masa.siradaki_oyuncu >= len(masa.oyuncular):
-                masa.siradaki_oyuncu = 0
-            elif idx < masa.siradaki_oyuncu:
-                masa.siradaki_oyuncu = max(0, masa.siradaki_oyuncu - 1)
+            bot_id, bot_ad = self._bot_yerine_koy(masa, user_id)
 
         if guild and masa.oyun_kanal_id:
             oyun_kanali = guild.get_channel(masa.oyun_kanal_id)
@@ -149,10 +169,13 @@ class GameManager:
                 except Exception:
                     pass
 
+        await ayrilma_cezasi_uygula(user_id)
+
         if channel:
             await channel.send(
-                f"⏱️ **{ad}** 5 dakika boyunca işlem yapmadığı için **diskalifiye** edildi!\n"
-                f"💡 Oyuna geri dönmek için **Masaya Katıl** butonuna basabilirsiniz."
+                f"⏱️ **{ad}** 5 dakika boyunca işlem yapmadığı için **diskalifiye** edildi! "
+                f"Yerine **{bot_ad or 'bot'}** geçti.\n"
+                f"💰 **-{AYRILMA_CEZASI} 🪙 ceza** uygulandı, **{AYRILMA_YASAK_DK} dakika** boyunca yeni masaya katılamaz."
             )
 
         gercek_kalan = [u for u in masa.oyuncular if u > 0]
@@ -169,12 +192,51 @@ class GameManager:
             await self._oyun_bitti(channel, masa_id, kazanan_id, guild)
             return
 
+        await self._panel_gonder(channel, masa_id)
         await self._bot_tur_kontrol(channel, masa_id)
 
-        siradaki = masa.siradaki_oyuncu_id()
-        if siradaki and siradaki > 0 and guild:
-            oyun_kanali = guild.get_channel(masa.oyun_kanal_id) if masa.oyun_kanal_id else channel
-            self._zaman_asimi_baslat(oyun_kanali or channel, guild, masa_id, siradaki)
+    # ── Kral / Borçlu rol yönetimi ───────────────────────────────────────────
+    async def _kral_borclu_guncelle(self, guild: discord.Guild):
+        """En çok galibiyeti olana Kral, en çok yenilgisi olana Borçlu rolünü verir."""
+        try:
+            kral_rolu = guild.get_role(KRAL_ROL_ID)
+            borclu_rolu = guild.get_role(BORCLU_ROL_ID)
+
+            if kral_rolu:
+                liderlik = await get_liderlik("galibiyet", 1)
+                yeni_kral_id = liderlik[0]["user_id"] if liderlik and liderlik[0].get("galibiyet", 0) > 0 else None
+                for m in list(kral_rolu.members):
+                    if m.id != yeni_kral_id:
+                        try:
+                            await m.remove_roles(kral_rolu, reason="Kral güncelleme")
+                        except Exception:
+                            pass
+                if yeni_kral_id:
+                    yeni_kral = guild.get_member(yeni_kral_id)
+                    if yeni_kral and kral_rolu not in yeni_kral.roles:
+                        try:
+                            await yeni_kral.add_roles(kral_rolu, reason="En çok galibiyet")
+                        except Exception:
+                            pass
+
+            if borclu_rolu:
+                liderlik = await get_liderlik("yenilgi", 1)
+                yeni_borclu_id = liderlik[0]["user_id"] if liderlik and liderlik[0].get("yenilgi", 0) > 0 else None
+                for m in list(borclu_rolu.members):
+                    if m.id != yeni_borclu_id:
+                        try:
+                            await m.remove_roles(borclu_rolu, reason="Borçlu güncelleme")
+                        except Exception:
+                            pass
+                if yeni_borclu_id:
+                    yeni_borclu = guild.get_member(yeni_borclu_id)
+                    if yeni_borclu and borclu_rolu not in yeni_borclu.roles:
+                        try:
+                            await yeni_borclu.add_roles(borclu_rolu, reason="En çok yenilgi")
+                        except Exception:
+                            pass
+        except Exception as e:
+            print(f"[KRAL/BORÇLU] Rol güncellenemedi: {e}")
 
     # ── Özel kanal oluştur/sil ───────────────────────────────────────────────
     async def _oyun_kanali_olustur(self, guild: discord.Guild, masa: OkeyGame) -> Optional[discord.TextChannel]:
@@ -317,6 +379,12 @@ class GameManager:
                        bot_modu=False, bahis: int = 0):
         await ensure_oyuncu(interaction.user.id, interaction.user.display_name)
 
+        yasakli, kalan = await ayrilma_yasagi_kontrol(interaction.user.id)
+        if yasakli:
+            await interaction.response.send_message(
+                f"❌ Masadan ayrıldığınız için **{kalan}** boyunca yeni masaya katılamazsınız.", ephemeral=True)
+            return
+
         mevcut = self._masa_bul_oyuncu(interaction.user.id)
         if mevcut:
             await interaction.response.send_message(
@@ -426,6 +494,12 @@ class GameManager:
         if mevcut:
             await interaction.response.send_message(f"❌ Zaten `{mevcut}` masadasınız.", ephemeral=True); return
 
+        yasakli, kalan = await ayrilma_yasagi_kontrol(interaction.user.id)
+        if yasakli:
+            await interaction.response.send_message(
+                f"❌ Masadan ayrıldığınız için **{kalan}** boyunca yeni masaya katılamazsınız.", ephemeral=True)
+            return
+
         if masa.durum == GameState.PLAYING:
             await self._oyun_sirasinda_katil(interaction, masa_id)
             return
@@ -471,6 +545,13 @@ class GameManager:
             )
             return
 
+        yasakli, kalan = await ayrilma_yasagi_kontrol(user_id)
+        if yasakli:
+            await interaction.response.send_message(
+                f"❌ Masadan ayrıldığınız için **{kalan}** boyunca yeni masaya katılamazsınız.", ephemeral=True
+            )
+            return
+
         mevcut_botlar = [uid for uid in masa.oyuncular if uid in masa.bot_oyuncular]
         if not mevcut_botlar:
             await interaction.response.send_message(
@@ -503,10 +584,6 @@ class GameManager:
             if oyun_kanali:
                 await self._kanal_member_ekle(interaction.guild, oyun_kanali, user_id)
 
-        if masa.siradaki_oyuncu_id() == user_id and interaction.guild:
-            oyun_kanali = interaction.guild.get_channel(masa.oyun_kanal_id) if masa.oyun_kanal_id else interaction.channel
-            self._zaman_asimi_baslat(oyun_kanali or interaction.channel, interaction.guild, masa_id, user_id)
-
         channel = interaction.channel
         if masa.oyun_kanal_id and interaction.guild:
             oyun_kanali = interaction.guild.get_channel(masa.oyun_kanal_id)
@@ -524,6 +601,9 @@ class GameManager:
                 f"🎴 Sıra: **{masa.oyuncu_adlari.get(masa.siradaki_oyuncu_id(), '?')}**"
             )
             await self._panel_gonder(channel, masa_id)
+
+        # Bot sırası ise zincirleme oynat; gerçek oyuncu sırasıysa panel/timeout başlat
+        await self._bot_tur_kontrol(channel, masa_id)
 
     def _oyuncu_mention_str(self, masa: OkeyGame, guild: Optional[discord.Guild]) -> str:
         parts = []
@@ -1055,6 +1135,9 @@ class GameManager:
 
         await mac_bitti(kazanan_id, masa.oyuncular, masa.bahis, masa_id)
 
+        if guild:
+            asyncio.create_task(self._kral_borclu_guncelle(guild))
+
         # Kazanma türüne göre ek bonus
         bonus_ekstra = 0
         if kazanan_id > 0:
@@ -1178,6 +1261,7 @@ class GameManager:
         ad = masa.oyuncu_adlari.get(user_id, "Oyuncu")
 
         if masa.durum == GameState.WAITING:
+            gercek_once = len([u for u in masa.oyuncular if u > 0])
             masa.oyuncu_cikar(user_id)
             gercek = len([u for u in masa.oyuncular if u > 0])
             if gercek == 0:
@@ -1190,33 +1274,45 @@ class GameManager:
                         pass
                 self.masalar.pop(masa_id, None)
                 await interaction.response.send_message("🚪 Masadan ayrıldınız. Masa kapatıldı.", ephemeral=True)
+            elif gercek_once > 1:
+                # Başkalarını bekleten bir masayı terk etti — ceza uygula
+                await ayrilma_cezasi_uygula(user_id)
+                await interaction.response.send_message(
+                    f"🚪 **{ad}** masadan ayrıldı. **-{AYRILMA_CEZASI} 🪙 ceza**, "
+                    f"**{AYRILMA_YASAK_DK} dakika** yeni masaya katılamaz.", ephemeral=True
+                )
             else:
                 await interaction.response.send_message(f"🚪 **{ad}** masadan ayrıldı.", ephemeral=True)
         else:
-            # Oyun devam ediyor — diskalifiye et
+            # Oyun devam ediyor — ceza uygula ve yerine bot geçir
+            await ayrilma_cezasi_uygula(user_id)
             await interaction.response.send_message(
-                f"🚪 **{ad}** masadan ayrıldı. Taşları talon'a karıştırıldı.", ephemeral=True
+                f"🚪 Masadan ayrıldınız. Yerine bot geçti. **-{AYRILMA_CEZASI} 🪙 ceza** uygulandı, "
+                f"**{AYRILMA_YASAK_DK} dakika** boyunca yeni masaya katılamazsınız.", ephemeral=True
             )
             channel = interaction.channel
             if masa.oyun_kanal_id and interaction.guild:
                 oy = interaction.guild.get_channel(masa.oyun_kanal_id)
                 if oy:
                     channel = oy
-            if channel:
-                await channel.send(f"🚪 **{ad}** masadan ayrıldı!")
 
             masa.diskalifiye.add(user_id)
-            if user_id in masa.oyuncu_elleri:
-                masa.talon.extend(masa.oyuncu_elleri.pop(user_id))
-                import random
-                random.shuffle(masa.talon)
+            bot_id, bot_ad = self._bot_yerine_koy(masa, user_id)
 
-            idx = masa.oyuncular.index(user_id)
-            masa.oyuncular.remove(user_id)
-            if masa.siradaki_oyuncu >= len(masa.oyuncular):
-                masa.siradaki_oyuncu = 0
-            elif idx < masa.siradaki_oyuncu:
-                masa.siradaki_oyuncu = max(0, masa.siradaki_oyuncu - 1)
+            if interaction.guild and masa.oyun_kanal_id:
+                oyun_kanali = interaction.guild.get_channel(masa.oyun_kanal_id)
+                member = interaction.guild.get_member(user_id)
+                if oyun_kanali and member:
+                    try:
+                        await oyun_kanali.set_permissions(member, view_channel=False)
+                    except Exception:
+                        pass
+
+            if channel:
+                await channel.send(
+                    f"🚪 **{ad}** masadan ayrıldı! Yerine **{bot_ad}** geçti. "
+                    f"(-{AYRILMA_CEZASI} 🪙 ceza, {AYRILMA_YASAK_DK}dk giriş yasağı)"
+                )
 
             gercek_kalan = [u for u in masa.oyuncular if u > 0]
             if len(gercek_kalan) == 0:
@@ -1230,6 +1326,7 @@ class GameManager:
                     )
                 await self._oyun_bitti(channel, masa_id, kazanan_id, interaction.guild)
             else:
+                await self._panel_gonder(channel, masa_id)
                 await self._bot_tur_kontrol(channel, masa_id)
 
     # ── Yardımcılar ─────────────────────────────────────────────────────────
@@ -1246,8 +1343,8 @@ class GameManager:
             color=0x3498db
         )
         oyuncu_listesi = "\n".join(
-            f"{'🤖' if uid < 0 else '👤'} {ad}"
-            for uid, ad in masa.oyuncu_adlari.items()
+            f"{'🤖' if uid < 0 else '👤'} {masa.oyuncu_adlari.get(uid, '?')}"
+            for uid in masa.oyuncular
         )
         embed.add_field(name=f"👥 Oyuncular ({masa.doluluk})", value=oyuncu_listesi or "Boş", inline=False)
         if masa.bahis > 0:
@@ -1262,8 +1359,8 @@ class GameManager:
         )
         siradaki = masa.siradaki_oyuncu_id()
         oyuncu_listesi = "\n".join(
-            f"{'🤖' if uid < 0 else '👤'} {ad}" + (" ⏳" if uid == siradaki else "")
-            for uid, ad in masa.oyuncu_adlari.items()
+            f"{'🤖' if uid < 0 else '👤'} {masa.oyuncu_adlari.get(uid, '?')}" + (" ⏳" if uid == siradaki else "")
+            for uid in masa.oyuncular
         )
         embed.add_field(name="👥 Oyuncular", value=oyuncu_listesi or "—", inline=False)
         embed.add_field(name="🎴 Okey Taşı", value=self._okey_str(masa), inline=True)

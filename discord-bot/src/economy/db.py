@@ -1,6 +1,7 @@
 import aiosqlite
 import os
 from datetime import datetime, timedelta
+from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "../../okey.db")
 
@@ -8,6 +9,8 @@ BASLANGIC_CIP  = 1000
 GUNLUK_ODUL    = 500
 KAZANMA_ODUL   = 200
 KAYBETME_CEZA  = 50
+AYRILMA_CEZASI = 200
+AYRILMA_YASAK_DK = 10
 
 MARKET_URUNLER = {
     "cayci_huseyin": {
@@ -55,6 +58,11 @@ async def init_db():
             await db.execute("ALTER TABLE oyuncular ADD COLUMN beraberlik INTEGER DEFAULT 0")
         except Exception:
             pass
+        # Ayrılma yasağı bitiş zamanı (varsa ignore)
+        try:
+            await db.execute("ALTER TABLE oyuncular ADD COLUMN ayrilma_yasagi TEXT")
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS mac_gecmisi (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +79,10 @@ async def init_db():
                 rol_idleri  TEXT DEFAULT '[]'
             )
         """)
+        try:
+            await db.execute("ALTER TABLE okey_ayarlar ADD COLUMN log_kanal_id INTEGER")
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS market_envanter (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,10 +191,40 @@ async def get_liderlik(kategori: str = "cip", limit: int = 10) -> list[dict]:
         db.row_factory = aiosqlite.Row
         sorgu = {
             "galibiyet": "SELECT * FROM oyuncular ORDER BY galibiyet DESC, cip DESC LIMIT ?",
+            "yenilgi":   "SELECT * FROM oyuncular WHERE yenilgi > 0 ORDER BY yenilgi DESC LIMIT ?",
             "mac":        "SELECT * FROM oyuncular ORDER BY toplam_mac DESC LIMIT ?",
         }.get(kategori, "SELECT * FROM oyuncular ORDER BY cip DESC LIMIT ?")
         async with db.execute(sorgu, (limit,)) as cur:
             return [dict(r) for r in await cur.fetchall()]
+
+
+# ── Ayrılma cezası / giriş yasağı ────────────────────────────────────────────
+
+async def ayrilma_cezasi_uygula(user_id: int) -> None:
+    """Masadan ayrılan oyuncuya çip cezası uygular ve X dakika masa girişini yasaklar."""
+    bitis = datetime.now() + timedelta(minutes=AYRILMA_YASAK_DK)
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE oyuncular SET cip = MAX(0, cip - ?), ayrilma_yasagi = ? WHERE user_id = ?",
+            (AYRILMA_CEZASI, bitis.isoformat(), user_id)
+        )
+        await db.commit()
+
+async def ayrilma_yasagi_kontrol(user_id: int) -> tuple[bool, str]:
+    """Oyuncunun masa girişi yasaklı mı? (yasakli_mi, kalan_sure_str)"""
+    oyuncu = await get_oyuncu(user_id)
+    if not oyuncu:
+        return False, ""
+    bitis_str = oyuncu.get("ayrilma_yasagi")
+    if not bitis_str:
+        return False, ""
+    bitis = datetime.fromisoformat(bitis_str)
+    if datetime.now() >= bitis:
+        return False, ""
+    kalan = bitis - datetime.now()
+    dak = int(kalan.total_seconds() // 60)
+    san = int(kalan.total_seconds() % 60)
+    return True, f"{dak}dk {san}sn"
 
 async def vip_mac_oyna(user_id: int, bahis: int) -> tuple[str, int, int]:
     """VIP masa RNG: kazan/bera/kaybet döner. (sonuc, odül_delta, yeni_cip)"""
@@ -319,7 +361,28 @@ async def set_izin_roller(guild_id: int, rol_idleri: list) -> None:
     import json
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR REPLACE INTO okey_ayarlar (guild_id, rol_idleri) VALUES (?, ?)",
-            (guild_id, json.dumps(rol_idleri))
+            "INSERT OR REPLACE INTO okey_ayarlar (guild_id, rol_idleri, log_kanal_id) "
+            "VALUES (?, ?, COALESCE((SELECT log_kanal_id FROM okey_ayarlar WHERE guild_id = ?), NULL))",
+            (guild_id, json.dumps(rol_idleri), guild_id)
+        )
+        await db.commit()
+
+
+async def get_log_kanal(guild_id: int) -> Optional[int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT log_kanal_id FROM okey_ayarlar WHERE guild_id = ?", (guild_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return row["log_kanal_id"] if row else None
+
+
+async def set_log_kanal(guild_id: int, kanal_id: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO okey_ayarlar (guild_id, log_kanal_id) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET log_kanal_id = excluded.log_kanal_id",
+            (guild_id, kanal_id)
         )
         await db.commit()

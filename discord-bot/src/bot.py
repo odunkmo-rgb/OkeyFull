@@ -6,7 +6,7 @@ import asyncio
 from src.economy.db import (
     init_db, ensure_oyuncu, get_oyuncu, gunluk_al,
     transfer_cip, get_liderlik, update_cip, vip_mac_oyna,
-    get_izin_roller
+    get_izin_roller, get_log_kanal, set_log_kanal
 )
 from src.ui.views import LobiView, build_masa_view
 from src.ui.render import render_profil
@@ -155,9 +155,9 @@ async def okey_izle(interaction: discord.Interaction, oda_id: str):
     if interaction.user.id not in masa.izleyiciler:
         masa.izleyiciler.append(interaction.user.id)
     oyuncu_listesi = "\n".join(
-        f"{'🤖' if uid < 0 else '👤'} {ad}"
+        f"{'🤖' if uid < 0 else '👤'} {masa.oyuncu_adlari.get(uid, '?')}"
         + (" ⏳" if uid == masa.siradaki_oyuncu_id() else "")
-        for uid, ad in masa.oyuncu_adlari.items()
+        for uid in masa.oyuncular
     )
     embed = discord.Embed(
         title=f"👁️ Masa `{masa_id}` — İzleyici Modu",
@@ -253,6 +253,103 @@ async def okey_rol(interaction: discord.Interaction, roller: str = ""):
         + hata_str
         + "\n\n💡 *Sıfırlamak için `/okey-rol` komutunu boş bırakarak çalıştırın.*",
         ephemeral=True
+    )
+
+# ─── ADMIN: ÇİP VE ROL VERME ─────────────────────────────────────────────────
+
+ADMIN_VERILEBILIR_ROL_ID = 1517200943488176279
+
+@bot.tree.command(name="okey-log-kanal-ayarla", description="Admin işlemlerinin loglanacağı kanalı belirler. (Sadece yönetici)")
+@app_commands.describe(kanal="Logların gönderileceği metin kanalı")
+async def okey_log_kanal_ayarla(interaction: discord.Interaction, kanal: discord.TextChannel):
+    if not is_admin(interaction):
+        await interaction.response.send_message(
+            "❌ Bu komutu sadece bot yöneticisi kullanabilir.", ephemeral=True
+        )
+        return
+    if not interaction.guild_id:
+        await interaction.response.send_message("❌ Bu komut sunucuda kullanılmalı.", ephemeral=True)
+        return
+    await set_log_kanal(interaction.guild_id, kanal.id)
+    await interaction.response.send_message(
+        f"✅ Log kanalı {kanal.mention} olarak ayarlandı.", ephemeral=True
+    )
+
+async def _admin_log_gonder(interaction: discord.Interaction, mesaj: str):
+    if not interaction.guild_id:
+        return
+    kanal_id = await get_log_kanal(interaction.guild_id)
+    if not kanal_id:
+        return
+    kanal = interaction.guild.get_channel(kanal_id) if interaction.guild else None
+    if kanal:
+        try:
+            await kanal.send(mesaj)
+        except Exception:
+            pass
+
+@bot.tree.command(name="okey-para-ver", description="Bir kullanıcıya çip verir. (Sadece yönetici)")
+@app_commands.describe(kullanici="Çip verilecek kullanıcı", miktar="Verilecek çip miktarı")
+async def okey_para_ver(interaction: discord.Interaction, kullanici: discord.Member, miktar: int):
+    if not is_admin(interaction):
+        await interaction.response.send_message(
+            "❌ Bu komutu sadece bot yöneticisi kullanabilir.", ephemeral=True
+        )
+        return
+    if miktar <= 0:
+        await interaction.response.send_message("❌ Miktar pozitif bir sayı olmalı.", ephemeral=True)
+        return
+
+    await ensure_oyuncu(kullanici.id, kullanici.display_name)
+    await update_cip(kullanici.id, miktar)
+
+    await interaction.response.send_message(
+        f"✅ **{kullanici.display_name}** kullanıcısına **{miktar:,}** 🪙 çip verildi.",
+        ephemeral=True
+    )
+    await _admin_log_gonder(
+        interaction,
+        f"💰 **Çip Verildi** — {interaction.user.mention} tarafından {kullanici.mention} kullanıcısına "
+        f"**{miktar:,}** 🪙 verildi."
+    )
+
+@bot.tree.command(name="okey-rol-ver", description="Bir kullanıcıya özel rolü verir. (Sadece yönetici)")
+@app_commands.describe(kullanici="Rol verilecek kullanıcı")
+async def okey_rol_ver(interaction: discord.Interaction, kullanici: discord.Member):
+    if not is_admin(interaction):
+        await interaction.response.send_message(
+            "❌ Bu komutu sadece bot yöneticisi kullanabilir.", ephemeral=True
+        )
+        return
+    if not interaction.guild:
+        await interaction.response.send_message("❌ Bu komut sunucuda kullanılmalı.", ephemeral=True)
+        return
+
+    rol = interaction.guild.get_role(ADMIN_VERILEBILIR_ROL_ID)
+    if not rol:
+        await interaction.response.send_message("❌ Verilecek rol sunucuda bulunamadı.", ephemeral=True)
+        return
+
+    if rol in kullanici.roles:
+        await interaction.response.send_message(
+            f"⚠️ **{kullanici.display_name}** zaten {rol.mention} rolüne sahip.", ephemeral=True
+        )
+        return
+
+    try:
+        await kullanici.add_roles(rol, reason=f"{interaction.user} tarafından verildi")
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Rol verilemedi: {e}", ephemeral=True)
+        return
+
+    await interaction.response.send_message(
+        f"✅ **{kullanici.display_name}** kullanıcısına {rol.mention} rolü verildi.",
+        ephemeral=True
+    )
+    await _admin_log_gonder(
+        interaction,
+        f"🎖️ **Rol Verildi** — {interaction.user.mention} tarafından {kullanici.mention} kullanıcısına "
+        f"{rol.mention} rolü verildi."
     )
 
 # ─── EKONOMİ KOMUTLARI ───────────────────────────────────────────────────────
