@@ -14,6 +14,10 @@ AYRILMA_YASAK_DK     = 10
 JACKPOT_KATKISI      = 10   # Her oyun sonrası jackpot'a eklenen sabit çip
 JACKPOT_SANS         = 7    # % ihtimalle kazanan jackpot'u alır
 
+VIP_ESIK             = 5000  # Bu çip miktarına ulaşan oyuncu VIP sayılır
+VIP_KAZANMA_BONUS    = 0.10  # VIP kazanma bonusu: ödülün %10'u ekstra
+VIP_BAHIS_CEZA       = 0.05  # VIP bahisli kayıp ek kesintisi: cezanın %5'i ekstra
+
 MARKET_URUNLER = {
     # ── Klasik ürünler ──────────────────────────────────────────────────────
     "cayci_huseyin": {
@@ -214,29 +218,57 @@ async def gunluk_al(user_id: int) -> tuple[bool, int, str]:
         await db.commit()
     return True, GUNLUK_ODUL, ""
 
-async def mac_bitti(kazanan_id: int, oyuncu_ids: list[int], bahis: int, masa_id: str):
+async def mac_bitti(kazanan_id: int, oyuncu_ids: list[int], bahis: int, masa_id: str) -> dict:
+    """
+    Maç bitti: çipleri güncelle, istatistikleri kaydet.
+    VIP oyuncular (>= VIP_ESIK çip) kazandıklarında +%10 bonus,
+    bahisli maçta kaybettiklerinde -%5 ek kesinti alır.
+    Döndürür: {"kazanan_vip_bonus": int, "kayip_vip_ceza": {uid: int}}
+    """
     gercek = [uid for uid in oyuncu_ids if uid > 0]
+    vip_info: dict = {"kazanan_vip_bonus": 0, "kayip_vip_ceza": {}}
+
     async with aiosqlite.connect(DB_PATH) as db:
+        # VIP kontrolü için mevcut çipleri oku (değişimden ÖNCE)
+        cip_oncesi: dict[int, int] = {}
         for uid in gercek:
+            async with db.execute("SELECT cip FROM oyuncular WHERE user_id = ?", (uid,)) as cur:
+                row = await cur.fetchone()
+                cip_oncesi[uid] = row[0] if row else 0
+
+        for uid in gercek:
+            is_vip = cip_oncesi[uid] >= VIP_ESIK
             if uid == kazanan_id:
                 kazanim = KAZANMA_ODUL + bahis * (len(gercek) - 1)
+                if is_vip:
+                    bonus = int(kazanim * VIP_KAZANMA_BONUS)
+                    kazanim += bonus
+                    vip_info["kazanan_vip_bonus"] = bonus
                 await db.execute("""
                     UPDATE oyuncular
                     SET cip = cip + ?, galibiyet = galibiyet + 1, toplam_mac = toplam_mac + 1
                     WHERE user_id = ?
                 """, (kazanim, uid))
             else:
+                ceza = KAYBETME_CEZA + bahis
+                if is_vip and bahis > 0:
+                    ek_ceza = int(ceza * VIP_BAHIS_CEZA)
+                    ceza += ek_ceza
+                    vip_info["kayip_vip_ceza"][uid] = ek_ceza
                 await db.execute("""
                     UPDATE oyuncular
                     SET cip = MAX(0, cip - ?), yenilgi = yenilgi + 1, toplam_mac = toplam_mac + 1
                     WHERE user_id = ?
-                """, (KAYBETME_CEZA + bahis, uid))
+                """, (ceza, uid))
+
         await db.execute(
             "INSERT INTO mac_gecmisi (masa_id, kazanan_id, oyuncular, bahis) VALUES (?, ?, ?, ?)",
             (masa_id, kazanan_id, ",".join(str(x) for x in oyuncu_ids), bahis)
         )
         await db.commit()
+
     await _seviye_guncelle(gercek)
+    return vip_info
 
 async def _seviye_guncelle(uid_list: list[int]):
     async with aiosqlite.connect(DB_PATH) as db:

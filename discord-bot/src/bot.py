@@ -479,10 +479,18 @@ async def profil(interaction: discord.Interaction, kullanici: discord.Member = N
     cip       = oyuncu.get("cip", 0)
     seviye    = oyuncu.get("seviye", 1)
 
-    embed = discord.Embed(title="📇 KAHVEHANE OKEY — OYUNCU PROFİLİ", color=0xf1c40f)
+    from src.economy.db import VIP_ESIK
+    is_vip = cip >= VIP_ESIK
+
+    embed = discord.Embed(
+        title="📇 KAHVEHANE OKEY — OYUNCU PROFİLİ",
+        color=0xf1c40f if not is_vip else 0xFFD700
+    )
     embed.set_thumbnail(url=hedef.display_avatar.url)
+
+    vip_satir = "\n👑 **VIP Üye** — Kazanma **+%10** | Bahisli kayıp **-%5**\n" if is_vip else ""
     embed.description = (
-        f"👤 **Oyuncu:** {hedef.mention}\n\n"
+        f"👤 **Oyuncu:** {hedef.mention}{vip_satir}\n"
         f"🪙 **Mevcut Çip:** `{cip:,} 🪙`\n"
         f"🏆 **Lig / Seviye:** `{_seviye_adi(seviye)} ✨`\n\n"
         f"📊 **İstatistikler:**\n"

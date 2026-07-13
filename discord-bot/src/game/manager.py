@@ -1144,7 +1144,7 @@ class GameManager:
         kazanan_ad = masa.oyuncu_adlari.get(kazanan_id, "Bot")
         gercek     = [uid for uid in masa.oyuncular if uid > 0]
 
-        await mac_bitti(kazanan_id, masa.oyuncular, masa.bahis, masa_id)
+        vip_info = await mac_bitti(kazanan_id, masa.oyuncular, masa.bahis, masa_id)
 
         if guild:
             asyncio.create_task(self._kral_borclu_guncelle(guild))
@@ -1253,11 +1253,21 @@ class GameManager:
             embed.add_field(name="🎊 Yedi Çift Bonusu!", value="7 çift yaparak çiftten bitirdiniz! Harika oyun!", inline=False)
 
         temel_kazanim = BONUS_NORMAL + (masa.bahis * (len(gercek) - 1) if masa.bahis > 0 else 0)
-        toplam_kazanim = temel_kazanim + bonus_ekstra
+        toplam_kazanim = temel_kazanim + bonus_ekstra + vip_info.get("kazanan_vip_bonus", 0)
 
         if masa.bahis > 0:
             embed.add_field(name="💰 Bahis",     value=f"{masa.bahis:,} 🪙", inline=True)
         embed.add_field(name="🎁 Kazanılan",  value=f"{toplam_kazanim:,} 🪙", inline=True)
+
+        # VIP bilgilendirmesi
+        vip_satirlar = []
+        if vip_info.get("kazanan_vip_bonus", 0) > 0:
+            vip_satirlar.append(f"👑 **{kazanan_ad}** VIP bonusu: +{vip_info['kazanan_vip_bonus']:,} 🪙 (%10)")
+        for uid, ek in vip_info.get("kayip_vip_ceza", {}).items():
+            ad = masa.oyuncu_adlari.get(uid, "Oyuncu")
+            vip_satirlar.append(f"👑 **{ad}** VIP bahis kesintisi: -{ek:,} 🪙 (%5)")
+        if vip_satirlar:
+            embed.add_field(name="👑 VIP Etkileri", value="\n".join(vip_satirlar), inline=False)
 
         oyuncu_str = "\n".join(
             f"{'🏆' if uid == kazanan_id else '👤'} {masa.oyuncu_adlari.get(uid,'?')}"
