@@ -1,60 +1,53 @@
 # Kahvehane Okey Botu
 
-Discord üzerinden tam kapsamlı, çok oyunculu Okey deneyimi sunan premium bir Discord botu.
+Discord için Türkçe Okey oyunu botu. Slash komutlarıyla masa kurma, düello, ekonomi sistemi ve rozet özelliklerine sahiptir.
 
-## Run & Operate
+## Çalıştırma
 
-- `cd discord-bot && python main.py` — botu başlat
-- Workflow: **Discord Okey Botu** (konsol çıktısı)
-- Gerekli secret: `DISCORD_BOT_TOKEN`
+Workflow: **Discord Okey Botu** (`cd discord-bot && python main.py`)
+
+### Gerekli Secret
+
+| Secret | Nereden Alınır |
+|--------|----------------|
+| `DISCORD_BOT_TOKEN` | Discord Developer Portal → Uygulamanız → Bot → Token |
 
 ## Stack
 
 - Python 3.11
-- discord.py 2.7
-- Pillow (görsel isteka render)
-- aiosqlite (yerel SQLite veritabanı)
+- discord.py 2.x (slash commands / app_commands)
+- aiosqlite (SQLite veritabanı)
+- Pillow (profil kartı görseli)
+- Dahili keep-alive HTTP sunucusu
 
-## Where things live
+## Proje Yapısı
 
-- `discord-bot/main.py` — giriş noktası
-- `discord-bot/src/bot.py` — bot + tüm slash komutları
-- `discord-bot/src/game/okey_engine.py` — Okey oyun motoru (taşlar, per, kazanma kontrolü)
-- `discord-bot/src/game/manager.py` — masa & oyun akışı yöneticisi
-- `discord-bot/src/economy/db.py` — SQLite veritabanı, çip ekonomisi
-- `discord-bot/src/ui/views.py` — Discord buton/modal View'ları
-- `discord-bot/src/ui/render.py` — Pillow ile görsel isteka & profil render
-- `discord-bot/okey.db` — oyuncu veritabanı (otomatik oluşur)
+```
+discord-bot/
+  main.py              # Giriş noktası
+  src/
+    bot.py             # Komutlar ve bot tanımı
+    game/
+      manager.py       # Oyun akışı ve masa yönetimi
+      okey_engine.py   # Okey oyun motoru
+    economy/
+      db.py            # Veritabanı işlemleri
+      gorevler.py      # Görev sistemi
+      rozetler.py      # Rozet sistemi
+    ui/
+      views.py         # Lobi ve masa butonları
+      duel_view.py     # Düello kabul/ret butonları
+      render.py        # Profil kartı render
+      market_views.py  # Market UI
+  okey.db              # SQLite veritabanı (otomatik oluşur)
+```
 
-## Architecture decisions
+## Önemli Notlar
 
-- Oyun durumu bellekte tutulur (GameState dict), bot yeniden başlayınca aktif masalar sıfırlanır.
-- Kalıcı lobi paneli `LobiView(timeout=None)` ile her boot'ta yeniden kaydedilir.
-- Masa butonları `build_masa_view(masa_id)` ile dinamik olarak oluşturulur; her masanın custom_id'si benzersizdir.
-- Görsel render (Pillow) her istekte anlık üretilir, dosyaya kaydedilmez.
-- Bot oyuncuları negatif user_id (-1, -2, -3, -4) ile temsil edilir.
+- Komut sync işlemi `on_ready` olayında yalnızca **bir kez** yapılır (`lobi_view_registered` bayrağı ile); yeniden bağlanmalarda duplicate oluşmaz.
+- `on_guild_join`'da guild-özel sync **yapılmaz** — global komutlar tüm sunucularda otomatik görünür. Önceden yapılan guild sync'ler duplicate komutlara yol açıyordu.
+- Düello `kabul` butonu `interaction.response.defer()` ile başlar; sonraki DB + kanal oluşturma işlemleri 3 saniyelik limiti aşsa bile panel doğru gönderilir.
 
-## Product
+## User Preferences
 
-- Ana panel: 5 kalıcı buton (4 kişilik masa, bot maçı, karışık, VIP bahisli, profil)
-- Oyun: taş çekme/atma, per dizme, AI bot rakipler, okey açma
-- Ekonomi: çip sistemi, günlük ödül, transfer, seviye
-- Slash komutları: /okey kur/katil/hizli-mac/izle/ayril, /cuzdan, /gunluk, /gonder, /profil, /liderlik, /yardim
-- Görsel: Pillow ile render edilmiş renkli isteka görseli (ephemeral)
-
-## User preferences
-
-- Yönetici ID: 1513128919182606378 (panel gönderme yetkisi)
-- Dil: Türkçe
-- Emoji: Özel sunucu emojileri ilerleyen aşamada ID ile değiştirilecek
-
-## Gotchas
-
-- `DATABASE_URL` bu projede kullanılmaz; SQLite kullanılır (`okey.db`)
-- pnpm workspace'deki `api-server` bu botla ilgisizdir
-- Slash komutları ilk başlatmada guild'e sync edilir, yayılması 1-60 dakika sürebilir
-- Bot yeniden başlatılırsa aktif masalar sıfırlanır (in-memory)
-
-## Pointers
-
-- discord.py docs: https://discordpy.readthedocs.io/
+- Türkçe açıklama ve mesajlar tercih edilir.

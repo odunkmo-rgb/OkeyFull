@@ -29,7 +29,17 @@ class DuelView(discord.ui.View):
             )
             return
         self.islendi = True
-        await self._deaktive_et(interaction)
+
+        # Önce interaction'ı defer et — DB + kanal oluşturma 3 sn'yi aşabilir
+        await interaction.response.defer()
+
+        # Butonları devre dışı bırak (defer sonrası followup ile)
+        for item in self.children:
+            item.disabled = True
+        try:
+            await interaction.message.edit(view=self)
+        except Exception:
+            pass
 
         from src.game.manager import game_manager
         from src.economy.db import ensure_oyuncu

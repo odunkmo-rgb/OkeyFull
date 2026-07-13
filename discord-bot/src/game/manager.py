@@ -373,8 +373,8 @@ class GameManager:
         try:
             msg = await channel.send(embed=embed, view=view)
             masa.panel_mesaj_id = msg.id
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[Panel Hatası] Masa {masa_id}: {e}")
 
     async def _mesaj_sayaci_artir(self, channel, masa_id: str):
         masa = self.masalar.get(masa_id)
@@ -1403,10 +1403,13 @@ class GameManager:
             for uid in (davetci_id, hedef_id):
                 o = await get_oyuncu(uid)
                 if not o or o.get("cip", 0) < bahis:
-                    await interaction.response.send_message(
-                        "❌ Yeterli çipi olmayan oyuncu var — bahissiz başlatılıyor.",
-                        ephemeral=False
-                    )
+                    try:
+                        await interaction.followup.send(
+                            "❌ Yeterli çipi olmayan oyuncu var — bahissiz başlatılıyor.",
+                            ephemeral=False
+                        )
+                    except Exception:
+                        pass
                     bahis = 0
                     break
 
@@ -1432,12 +1435,19 @@ class GameManager:
 
         basarili = masa.baslat()
         if not basarili:
-            await interaction.response.send_message("❌ Düello başlatılamadı (yeterli oyuncu yok).", ephemeral=True)
+            try:
+                await interaction.followup.send("❌ Düello başlatılamadı (yeterli oyuncu yok).", ephemeral=True)
+            except Exception:
+                pass
             return
 
-        await interaction.response.send_message(
-            f"⚔️ Düello başlıyor! {hedef_kanal.mention if kanal else f'Masa: `{masa_id}`'}",
-        )
+        try:
+            await interaction.followup.send(
+                f"⚔️ Düello başlıyor! {hedef_kanal.mention if kanal else f'Masa: `{masa_id}`'}",
+            )
+        except Exception as e:
+            print(f"[Düello] followup.send hatası: {e}")
+
         if hedef_kanal:
             await self._panel_gonder(hedef_kanal, masa_id)
             ilk_oyuncu = masa.siradaki_oyuncu_id()
