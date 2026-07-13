@@ -36,6 +36,15 @@ class OkeyBot(commands.Bot):
         print(f"✅ {self.user} olarak giriş yapıldı!")
         if not self.lobi_view_registered:
             self.lobi_view_registered = True
+            # Guild'e özgü kayıtlı komutları temizle (duplicate önlemi)
+            for guild in self.guilds:
+                try:
+                    self.tree.clear_commands(guild=guild)
+                    await self.tree.sync(guild=guild)
+                    print(f"🧹 {guild.name} guild komutları temizlendi.")
+                except Exception as e:
+                    print(f"⚠ {guild.name} temizlik hatası: {e}")
+            # Sadece global komutları yayınla
             try:
                 synced = await self.tree.sync()
                 print(f"✅ Global: {len(synced)} komut sync edildi.")
