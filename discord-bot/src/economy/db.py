@@ -5,14 +5,17 @@ from typing import Optional
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "../../okey.db")
 
-BASLANGIC_CIP  = 1000
-GUNLUK_ODUL    = 500
-KAZANMA_ODUL   = 200
-KAYBETME_CEZA  = 50
-AYRILMA_CEZASI = 200
-AYRILMA_YASAK_DK = 10
+BASLANGIC_CIP        = 1000
+GUNLUK_ODUL          = 500
+KAZANMA_ODUL         = 200
+KAYBETME_CEZA        = 50
+AYRILMA_CEZASI       = 200
+AYRILMA_YASAK_DK     = 10
+JACKPOT_KATKISI      = 10   # Her oyun sonrası jackpot'a eklenen sabit çip
+JACKPOT_SANS         = 7    # % ihtimalle kazanan jackpot'u alır
 
 MARKET_URUNLER = {
+    # ── Klasik ürünler ──────────────────────────────────────────────────────
     "cayci_huseyin": {
         "ad":       "Çaycı Hüseyin Efekti",
         "emoji":    "☕",
@@ -34,7 +37,71 @@ MARKET_URUNLER = {
         "aciklama": "Çifte gittiğinde ceza puanını yarıya indirir. (Tek kullanımlık)",
         "tur":      "tek_kullanim",
     },
+    # ── Yeni ürünler ────────────────────────────────────────────────────────
+    "sans_kutusu": {
+        "ad":       "🎁 Şans Kutusu",
+        "emoji":    "🎁",
+        "fiyat":    150,
+        "aciklama": "Açınca 50–2.000 🪙 arasında rastgele ödül kazanırsın! (Anında)",
+        "tur":      "anlik",
+    },
+    "okey_fali": {
+        "ad":       "🔮 Okey Falı",
+        "emoji":    "🔮",
+        "fiyat":    75,
+        "aciklama": "Bottan bugünkü oyunun için özel bir kehanet al! (Eğlencelik, anında)",
+        "tur":      "anlik",
+    },
+    "hiz_patenti": {
+        "ad":       "⚡ Hız Patenti",
+        "emoji":    "⚡",
+        "fiyat":    350,
+        "aciklama": "Bu oyundaki her turunda +30 saniye ek süre kazanırsın. (Tek kullanımlık)",
+        "tur":      "tek_kullanim",
+    },
+    "gizli_bomba": {
+        "ad":       "💣 Gizli Bomba",
+        "emoji":    "💣",
+        "fiyat":    400,
+        "aciklama": "Kaybedersen rastgele bir rakibinden 100 🪙 alırsın. (Tek kullanımlık)",
+        "tur":      "tek_kullanim",
+    },
+    "ikinci_sans": {
+        "ad":       "🔄 İkinci Şans",
+        "emoji":    "🔄",
+        "fiyat":    600,
+        "aciklama": "Bir oyunda elini bir kez yeniden dağıtma hakkı. (Tek kullanımlık)",
+        "tur":      "tek_kullanim",
+    },
+    "vip_rozet": {
+        "ad":       "👑 VIP Rozet",
+        "emoji":    "👑",
+        "fiyat":    1000,
+        "aciklama": "Oyuncu panelinde ve profilde VIP rozeti görünür. (Kalıcı)",
+        "tur":      "sürekli",
+    },
 }
+
+OKEY_FALLARI = [
+    "🔮 Bugün talon sana çok iyi gelecek. İlk çektiğin taşa dikkat et!",
+    "🔮 Rakibinin elinde büyük ihtimalle çift okey var. Tetikte ol!",
+    "🔮 Yavaş git, emniyetli oyna. Bugün sabır kazandırır.",
+    "🔮 Siyah taşlar bugün uğurlun — siyah setten gitmeye çalış!",
+    "🔮 Bu elde erken kapatma, el daha da güçlenecek.",
+    "🔮 Büyük kazanç çok yakın. Sabretmeye devam et!",
+    "🔮 Joker bugün sana gelmeyecek, ama doğal setten bitebilirsin!",
+    "🔮 Rakibin çok taş çekiyor — elinde büyük set var demektir!",
+    "🔮 Blöf yapma vakti. Atacağın taşları iyi seç!",
+    "🔮 Bu oyunu hızlı bitirme, el zamanla güçleniyor.",
+    "🔮 Kırmızı taşlar bugün şanslı rengin!",
+    "🔮 Komşundan beklenmedik bir hamle gelecek. Hazır ol!",
+    "🔮 Bu el yenilebilir görünse de mucizeler olur. Bırakma!",
+    "🔮 Talon sana iki tur içinde tam ihtiyacın olan taşı verecek.",
+    "🔮 Bugün jackpot şansın yüksek. Oynamaya devam et!",
+]
+
+SANS_KUTULARI = [50, 100, 250, 500, 1000, 2000]
+SANS_KUTUSU_AGIRLIKLARI = [40, 30, 15, 10, 4, 1]
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -92,6 +159,13 @@ async def init_db():
                 el_sayaci   INTEGER DEFAULT 0
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS jackpot (
+                id     INTEGER PRIMARY KEY,
+                miktar INTEGER DEFAULT 0
+            )
+        """)
+        await db.execute("INSERT OR IGNORE INTO jackpot (id, miktar) VALUES (1, 0)")
         await db.commit()
 
 async def get_oyuncu(user_id: int) -> dict:
@@ -264,7 +338,7 @@ async def vip_mac_oyna(user_id: int, bahis: int) -> tuple[str, int, int]:
 # ── Market fonksiyonları ─────────────────────────────────────────────────────
 
 async def market_satin_al(user_id: int, urun_adi: str) -> tuple[bool, str]:
-    """Ürünü satın al: bakiye düş, envantere ekle."""
+    """Ürünü satın al: bakiye düş, envantere ekle (anlik türler envantere gitmez)."""
     urun = MARKET_URUNLER.get(urun_adi)
     if not urun:
         return False, "Geçersiz ürün."
@@ -278,10 +352,11 @@ async def market_satin_al(user_id: int, urun_adi: str) -> tuple[bool, str]:
         await db.execute(
             "UPDATE oyuncular SET cip = cip - ? WHERE user_id = ?", (fiyat, user_id)
         )
-        await db.execute(
-            "INSERT INTO market_envanter (user_id, urun_adi, aktif_mi, el_sayaci) VALUES (?, ?, 1, 0)",
-            (user_id, urun_adi)
-        )
+        if urun["tur"] != "anlik":
+            await db.execute(
+                "INSERT INTO market_envanter (user_id, urun_adi, aktif_mi, el_sayaci) VALUES (?, ?, 1, 0)",
+                (user_id, urun_adi)
+            )
         await db.commit()
     return True, ""
 
@@ -386,3 +461,41 @@ async def set_log_kanal(guild_id: int, kanal_id: int) -> None:
             (guild_id, kanal_id)
         )
         await db.commit()
+
+
+# ── Jackpot sistemi ──────────────────────────────────────────────────────────
+
+async def get_jackpot() -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT miktar FROM jackpot WHERE id = 1") as cur:
+            row = await cur.fetchone()
+            return row["miktar"] if row else 0
+
+
+async def jackpot_katki_ekle(miktar: int = JACKPOT_KATKISI):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE jackpot SET miktar = miktar + ? WHERE id = 1", (miktar,)
+        )
+        await db.commit()
+
+
+async def jackpot_dene(kazanan_id: int) -> int:
+    """
+    %JACKPOT_SANS ihtimalle jackpot'u kazanan_id'ye ver.
+    Kazanılan miktarı döndür (0 = kazanılmadı).
+    """
+    import random
+    if kazanan_id <= 0:
+        return 0
+    miktar = await get_jackpot()
+    if miktar <= 0:
+        return 0
+    if random.randint(1, 100) > JACKPOT_SANS:
+        return 0
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("UPDATE jackpot SET miktar = 0 WHERE id = 1")
+        await db.commit()
+    await update_cip(kazanan_id, miktar)
+    return miktar

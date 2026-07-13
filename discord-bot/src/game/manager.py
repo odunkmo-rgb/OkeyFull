@@ -11,8 +11,11 @@ from src.economy.db import (
     ensure_oyuncu, update_cip, mac_bitti, get_izin_roller, set_izin_roller,
     urun_kontrol, urun_deaktive, cayci_el_sayaci_artir, get_liderlik,
     ayrilma_cezasi_uygula, ayrilma_yasagi_kontrol,
+    jackpot_katki_ekle, jackpot_dene, get_jackpot,
     KAZANMA_ODUL, KAYBETME_CEZA, AYRILMA_CEZASI, AYRILMA_YASAK_DK
 )
+from src.economy.gorevler import gorev_ilerlet, TUM_GOREVLER as _TUM_GOREVLER
+from src.economy.rozetler import rozet_kontrol, ROZETLER as ROZET_LISTESI
 from src.ui.render import render_el, render_son_tas
 
 IZLEYICI_ROL_ID  = 1513129008554971256
@@ -120,7 +123,15 @@ class GameManager:
 
     async def _zaman_asimi_sayac(self, channel, guild, masa_id: str, user_id: int):
         try:
-            uyari_bekleme = ZAMAN_ASIMI_SN - UYARI_KALA_SN
+            ek_sure = 0
+            if user_id > 0:
+                try:
+                    hiz = await urun_kontrol(user_id, "hiz_patenti")
+                    if hiz:
+                        ek_sure = 30
+                except Exception:
+                    pass
+            uyari_bekleme = ZAMAN_ASIMI_SN + ek_sure - UYARI_KALA_SN
             await asyncio.sleep(uyari_bekleme)
 
             masa = self.masalar.get(masa_id)
@@ -1138,6 +1149,12 @@ class GameManager:
         if guild:
             asyncio.create_task(self._kral_borclu_guncelle(guild))
 
+        # Jackpot katkısı + çekiliş
+        await jackpot_katki_ekle()
+        jackpot_kazanildi = 0
+        if kazanan_id > 0:
+            jackpot_kazanildi = await jackpot_dene(kazanan_id)
+
         # Kazanma türüne göre ek bonus
         bonus_ekstra = 0
         if kazanan_id > 0:
@@ -1172,8 +1189,47 @@ class GameManager:
                 ad = masa.oyuncu_adlari.get(uid, "Oyuncu")
                 market_notlar.append(f"🛡️ **{ad}** sigorta ile yarı ceza ödedi (+{iade:,} 🪙 iade).")
 
+        # Gizli Bomba: kaybeden ama bombası olan oyuncu, rakibinden 100 🪙 çalar
+        for uid in gercek:
+            if uid == kazanan_id:
+                continue
+            bomba = await urun_kontrol(uid, "gizli_bomba")
+            if bomba:
+                rakipler = [r for r in gercek if r != uid]
+                if rakipler:
+                    hedef_uid = random.choice(rakipler)
+                    await update_cip(uid, 100)
+                    await update_cip(hedef_uid, -100)
+                    await urun_deaktive(uid, "gizli_bomba")
+                    b_ad = masa.oyuncu_adlari.get(uid, "Oyuncu")
+                    h_ad = masa.oyuncu_adlari.get(hedef_uid, "Oyuncu")
+                    market_notlar.append(f"💣 **{b_ad}** kaybetti ama bomba ile **{h_ad}**'dan 100 🪙 çaldı!")
+
         # Çaycı Hüseyin item sahiplerinin el sayacını artır
         cayci_video_ids = await cayci_el_sayaci_artir(gercek)
+
+        # Görev ve rozet güncellemeleri
+        yeni_basarimlar: list[str] = []
+        for uid in gercek:
+            kazandi = (uid == kazanan_id)
+            try:
+                tamamlanan_gorevler = await gorev_ilerlet(uid, "oyun")
+                if kazandi:
+                    tamamlanan_gorevler += await gorev_ilerlet(uid, "galibiyet")
+                ktur = kazanma_turu if kazandi else "normal"
+                yeni_rozetler = await rozet_kontrol(uid, kazandi, ktur)
+                oyuncu_adi = masa.oyuncu_adlari.get(uid, "Oyuncu")
+                for rid in yeni_rozetler:
+                    r = ROZET_LISTESI.get(rid, {})
+                    yeni_basarimlar.append(f"{r.get('emoji','🎖️')} **{oyuncu_adi}** — {r.get('ad', rid)}")
+                for gid in tamamlanan_gorevler:
+                    g = _TUM_GOREVLER.get(gid, {})
+                    yeni_basarimlar.append(f"📋 **{oyuncu_adi}**: {g.get('ad', gid)} (+{g.get('odul',0):,} 🪙)")
+            except Exception as e:
+                print(f"[BASARIM] Hata uid={uid}: {e}")
+
+        if jackpot_kazanildi > 0:
+            market_notlar.append(f"🎰 **JACKPOT!** {kazanan_ad} **{jackpot_kazanildi:,}** 🪙 jackpot kazandı! 🎉")
 
         tur_ikonu = {
             "cifte_okey": "🌟",
@@ -1211,10 +1267,18 @@ class GameManager:
             embed.add_field(name="👥 Oyuncular", value=oyuncu_str, inline=False)
         if market_notlar:
             embed.add_field(name="🎁 Market Efektleri", value="\n".join(market_notlar), inline=False)
+        if yeni_basarimlar:
+            embed.add_field(name="🏅 Yeni Başarımlar", value="\n".join(yeni_basarimlar[:6]), inline=False)
+        jp_son = await get_jackpot()
+        embed.add_field(name="🎰 Jackpot Havuzu", value=f"**{jp_son:,}** 🪙", inline=True)
         embed.set_footer(text=f"Masa #{masa_id} • Kanal 2 dakika sonra silinecek.")
 
         if channel:
-            await channel.send(embed=embed)
+            if len(gercek) >= 2:
+                from src.ui.rovans_view import RovansView
+                await channel.send(embed=embed, view=RovansView(gercek, masa.bahis))
+            else:
+                await channel.send(embed=embed)
 
         # Çaycı Hüseyin item sahipleri için video gönder (varsa)
         if cayci_video_ids and channel:
@@ -1328,6 +1392,59 @@ class GameManager:
             else:
                 await self._panel_gonder(channel, masa_id)
                 await self._bot_tur_kontrol(channel, masa_id)
+
+    # ── 1v1 Düello ──────────────────────────────────────────────────────────
+    async def duel_baslat(self, interaction: discord.Interaction,
+                          davetci_id: int, hedef_id: int, bahis: int):
+        """İki oyuncuyu aynı masaya koyarak 1v1 düello başlatır."""
+        guild = interaction.guild
+        if bahis > 0:
+            from src.economy.db import get_oyuncu
+            for uid in (davetci_id, hedef_id):
+                o = await get_oyuncu(uid)
+                if not o or o.get("cip", 0) < bahis:
+                    await interaction.response.send_message(
+                        "❌ Yeterli çipi olmayan oyuncu var — bahissiz başlatılıyor.",
+                        ephemeral=False
+                    )
+                    bahis = 0
+                    break
+
+        masa_id = str(uuid.uuid4())[:6].upper()
+        masa    = OkeyGame(masa_id=masa_id, max_oyuncu=2, bahis=bahis)
+        self.masalar[masa_id] = masa
+
+        kanal = await self._oyun_kanali_olustur(guild, masa) if guild else None
+        hedef_kanal = kanal or interaction.channel
+
+        for uid in (davetci_id, hedef_id):
+            ad = "Oyuncu"
+            if guild:
+                m = guild.get_member(uid)
+                if m:
+                    ad = m.display_name
+                    if kanal:
+                        try:
+                            await kanal.set_permissions(m, view_channel=True, send_messages=True)
+                        except Exception:
+                            pass
+            masa.oyuncu_ekle(uid, ad)
+
+        basarili = masa.baslat()
+        if not basarili:
+            await interaction.response.send_message("❌ Düello başlatılamadı (yeterli oyuncu yok).", ephemeral=True)
+            return
+
+        await interaction.response.send_message(
+            f"⚔️ Düello başlıyor! {hedef_kanal.mention if kanal else f'Masa: `{masa_id}`'}",
+        )
+        if hedef_kanal:
+            await self._panel_gonder(hedef_kanal, masa_id)
+            ilk_oyuncu = masa.siradaki_oyuncu_id()
+            if ilk_oyuncu and ilk_oyuncu in masa.bot_oyuncular:
+                await self._bot_tur_kontrol(hedef_kanal, masa_id)
+            elif ilk_oyuncu:
+                self._zaman_asimi_baslat(hedef_kanal, guild, masa_id, ilk_oyuncu)
 
     # ── Yardımcılar ─────────────────────────────────────────────────────────
     def _okey_str(self, masa: OkeyGame) -> str:

@@ -26,6 +26,10 @@ class OkeyBot(commands.Bot):
 
     async def setup_hook(self):
         await init_db()
+        from src.economy.gorevler import init_gorevler_db
+        from src.economy.rozetler import init_rozetler_db
+        await init_gorevler_db()
+        await init_rozetler_db()
         self.add_view(LobiView())
 
     async def on_ready(self):
@@ -409,6 +413,11 @@ async def gonder(interaction: discord.Interaction, kullanici: discord.Member, mi
             color=0x2ecc71
         )
         await interaction.response.send_message(embed=embed)
+        try:
+            from src.economy.gorevler import gorev_ilerlet
+            await gorev_ilerlet(interaction.user.id, "gonder")
+        except Exception:
+            pass
     else:
         await interaction.response.send_message(f"❌ {hata}", ephemeral=True)
 
@@ -509,6 +518,94 @@ async def liderlik(interaction: discord.Interaction, kategori: str = "cip"):
         satirlar.append(f"{medal} **{o.get('ad', 'Bilinmiyor')}** — {degerler[kategori](o)}")
     embed.description = "\n".join(satirlar) if satirlar else "Henüz kayıt yok."
     await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="jackpot", description="Mevcut jackpot havuzunu gör")
+async def jackpot_cmd(interaction: discord.Interaction):
+    from src.economy.db import get_jackpot, JACKPOT_KATKISI, JACKPOT_SANS
+    miktar = await get_jackpot()
+    embed = discord.Embed(title="🎰 Kahvehane Jackpot", color=0xf1c40f)
+    embed.description = (
+        f"Şu anki jackpot havuzu: **{miktar:,}** 🪙 🔥" if miktar > 0
+        else "Jackpot henüz birikmedi. Her oyun büyüyor!"
+    )
+    embed.add_field(
+        name="Nasıl kazanılır?",
+        value=f"Her oyun sonrası **{JACKPOT_KATKISI}** 🪙 birikir.\nOyun kazananlarının **%{JACKPOT_SANS}** ihtimalle jackpot'u alır!",
+        inline=False
+    )
+    embed.set_footer(text="Daha fazla oyna, jackpot büyüsün!")
+    await interaction.response.send_message(embed=embed)
+
+
+@bot.tree.command(name="gorevler", description="Günlük ve haftalık görevlerini gör")
+async def gorevler_cmd(interaction: discord.Interaction):
+    await ensure_oyuncu(interaction.user.id, interaction.user.display_name)
+    from src.economy.gorevler import get_gorevler_durumu, GUNLUK_GOREVLER, HAFTALIK_GOREVLER
+    gorevler = await get_gorevler_durumu(interaction.user.id)
+    embed = discord.Embed(title="📋 Görevlerim", color=0x3498db)
+    gunluk_ids = {g["id"] for g in GUNLUK_GOREVLER}
+    gunluk_str, haftalik_str = [], []
+    for g in gorevler:
+        durum = "✅" if g["tamamlandi"] else f"⏳ `{g['ilerleme']}/{g['hedef']}`"
+        satir = f"{durum} **{g['ad']}**\n↳ {g['aciklama']} — **+{g['odul']:,}** 🪙"
+        (gunluk_str if g["id"] in gunluk_ids else haftalik_str).append(satir)
+    embed.add_field(name="☀️ Günlük", value="\n\n".join(gunluk_str) or "—", inline=False)
+    embed.add_field(name="📅 Haftalık", value="\n\n".join(haftalik_str) or "—", inline=False)
+    embed.set_footer(text="Görevleri tamamla, ekstra çip kazan!")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="rozetler", description="Kazandığın rozetleri ve başarımları gör")
+async def rozetler_cmd(interaction: discord.Interaction):
+    await ensure_oyuncu(interaction.user.id, interaction.user.display_name)
+    from src.economy.rozetler import get_rozetler, ROZETLER
+    kazanilan = set(await get_rozetler(interaction.user.id))
+    embed = discord.Embed(title="🏅 Rozetlerim", color=0xf1c40f)
+    satirlar = []
+    for rid, r in ROZETLER.items():
+        if rid in kazanilan:
+            satirlar.append(f"{r['emoji']} **{r['ad']}** — {r['aciklama']}")
+        else:
+            satirlar.append(f"🔒 ~~{r['ad']}~~ — {r['aciklama']}")
+    embed.description = "\n".join(satirlar) or "Henüz rozet yok."
+    embed.set_footer(text=f"{len(kazanilan)}/{len(ROZETLER)} rozet kazanıldı.")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+@bot.tree.command(name="duel", description="Bir oyuncuya 1v1 düello daveti gönder")
+@app_commands.describe(hedef="Meydan okuyacağın oyuncu", bahis="Bahis miktarı (0 = bahissiz)")
+async def duel_cmd(interaction: discord.Interaction, hedef: discord.Member, bahis: int = 0):
+    if hedef.id == interaction.user.id:
+        await interaction.response.send_message("❌ Kendinize meydan okuyamazsınız!", ephemeral=True)
+        return
+    if hedef.bot:
+        await interaction.response.send_message("❌ Botlara meydan okuyamazsınız!", ephemeral=True)
+        return
+    await ensure_oyuncu(interaction.user.id, interaction.user.display_name)
+    if bahis > 0:
+        oyuncu = await get_oyuncu(interaction.user.id)
+        if oyuncu.get("cip", 0) < bahis:
+            await interaction.response.send_message(
+                f"❌ Yeterli çipiniz yok. Mevcut: **{oyuncu.get('cip',0):,}** 🪙", ephemeral=True
+            )
+            return
+    from src.ui.duel_view import DuelView
+    embed = discord.Embed(
+        title="⚔️ 1v1 Düello Daveti!",
+        description=(
+            f"{hedef.mention}, **{interaction.user.display_name}** seni düelloya davet etti!\n\n"
+            + (f"💰 Bahis: **{bahis:,}** 🪙" if bahis > 0 else "🆓 Bahissiz")
+        ),
+        color=0xe74c3c
+    )
+    embed.set_footer(text="60 saniye içinde cevap ver!")
+    await interaction.response.send_message(
+        content=hedef.mention,
+        embed=embed,
+        view=DuelView(interaction.user.id, hedef.id, bahis)
+    )
+
 
 @bot.tree.command(name="yardim", description="Okey botu komutları ve oyun kuralları rehberi")
 async def yardim(interaction: discord.Interaction):
