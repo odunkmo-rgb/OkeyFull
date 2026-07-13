@@ -30,17 +30,23 @@ class OkeyBot(commands.Bot):
 
     async def on_ready(self):
         print(f"✅ {self.user} olarak giriş yapıldı!")
-        for guild in self.guilds:
-            self.tree.copy_global_to(guild=guild)
-            synced = await self.tree.sync(guild=guild)
-            print(f"  ✔ {guild.name}: {len(synced)} komut sync edildi.")
-        print("✅ Slash komutları senkronize edildi.")
+        synced = await self.tree.sync()
+        print(f"✅ Global: {len(synced)} komut sync edildi.")
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.playing,
                 name="🎲 Kahvehane Okey | /yardım"
             )
         )
+
+    async def on_guild_join(self, guild: discord.Guild):
+        print(f"➕ Yeni sunucu: {guild.name} — komutlar sync ediliyor…")
+        try:
+            self.tree.copy_global_to(guild=guild)
+            synced = await self.tree.sync(guild=guild)
+            print(f"  ✔ {guild.name}: {len(synced)} komut hızlı sync edildi.")
+        except Exception as e:
+            print(f"  ⚠ {guild.name} sync hatası: {e}")
 
 bot = OkeyBot()
 
