@@ -1,9 +1,19 @@
 import aiosqlite
 import os
+import shutil
 from datetime import datetime, timedelta
 from typing import Optional
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "../../okey.db")
+_BOT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+_BUNDLED_DB_PATH = os.path.join(_BOT_ROOT, "okey.db")
+DB_PATH = os.path.abspath(os.environ.get("DATABASE_PATH", _BUNDLED_DB_PATH))
+
+# Railway volumes are normally mounted at /data. On the first deployment,
+# seed the persistent database from the repository copy if the volume is empty.
+_db_dir = os.path.dirname(DB_PATH) or "."
+os.makedirs(_db_dir, exist_ok=True)
+if DB_PATH != _BUNDLED_DB_PATH and not os.path.exists(DB_PATH) and os.path.exists(_BUNDLED_DB_PATH):
+    shutil.copy2(_BUNDLED_DB_PATH, DB_PATH)
 
 BASLANGIC_CIP        = 1000
 GUNLUK_ODUL          = 500

@@ -1,0 +1,1 @@
+-r discord-bot/requirements.txt

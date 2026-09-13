@@ -1,0 +1,14 @@
+.git
+.github
+.cache
+.local
+.replit
+node_modules
+__pycache__
+*.py[cod]
+*.tsbuildinfo
+dist
+tmp
+out-tsc
+coverage
+*.log

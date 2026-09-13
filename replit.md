@@ -12,6 +12,23 @@ Workflow: **Discord Okey Botu** (`cd discord-bot && python main.py`)
 |--------|----------------|
 | `DISCORD_BOT_TOKEN` | Discord Developer Portal → Uygulamanız → Bot → Token |
 
+## Railway deploy
+
+Repo kökünde `Dockerfile` ve `railway.toml` bulunur. Railway deploy ayarları
+başlangıç komutunu otomatik olarak `python discord-bot/main.py` yapar ve
+`/health` endpoint'ini health check olarak kullanır.
+
+Railway Variables bölümüne şu secret'ı ekleyin:
+
+| Variable | Değer |
+|----------|-------|
+| `DISCORD_BOT_TOKEN` | Discord bot token'ı |
+| `DATABASE_PATH` | `/data/okey.db` |
+
+Oyuncu verilerinin yeniden başlatmalarda korunması için Railway'de bir Volume
+oluşturup mount path olarak `/data` seçin. Volume olmadan bot çalışır, ancak
+SQLite verisi yeni deploy veya yeniden başlatmada kalıcı olmaz.
+
 ## Stack
 
 - Python 3.11
